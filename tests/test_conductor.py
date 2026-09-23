@@ -127,6 +127,25 @@ def test_idle_monologue_when_chat_is_quiet(tmp_cfg):
     run(go())
 
 
+def test_draining_quit_answers_queued_chat_then_stops(tmp_cfg):
+    tmp_cfg.conductor.idle_after_s = 0.01  # idle filler is always due, and must be skipped
+    tmp_cfg.conductor.idle_jitter_s = 0.0
+    tmp_cfg.conductor.event_batch_s = 0.3
+
+    async def go():
+        async with Live(tmp_cfg) as live:
+            await live.wait_turns(1)  # an idle monologue, proving idle talk is live
+            live.rt.submit(ChatMessage(user="amy", text="hi nexa, how are you today?"))
+            live.rt.submit(ChatMessage(user="bob", text="what is your favourite game?"))
+            live.rt.submit(StreamEvent("sub", "cara", 2))
+            live.rt.submit(ModeratorCommand("quit", {"drain": True}))
+            await asyncio.wait_for(asyncio.shield(live.task), 10)  # stops on its own
+            kinds = [t["kind"] for t in live.turns()]
+            after = kinds[kinds.index("chat"):]
+            assert sorted(after) == ["chat", "chat", "event"]
+
+    run(go())
+
 def test_twin_banter(tmp_cfg):
     tmp_cfg.twin = "vexa"
     tmp_cfg.conductor.banter_chance = 1.0

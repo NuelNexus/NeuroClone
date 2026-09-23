@@ -99,7 +99,8 @@ class Runtime:
         for idx, p in enumerate([persona] + ([twin] if twin else [])):
             characters.append(self._character(p, twin if idx == 0 else persona, idx == 0, blocklist, moderator, voice_hub))
 
-        game_agent = GameAgent(self.llm, self.games, persona.system_prompt(twin), cfg.games) if self.games else None
+        game_agent = (GameAgent(self.llm, self.games, persona.system_prompt(twin, compact=cfg.prompt_style == "compact"),
+                                cfg.games) if self.games else None)
         session_id = self.memory.session_id if self.memory else time.strftime("%Y%m%d-%H%M%S")
         transcripts = TranscriptLogger(cfg.logging.transcripts_dir, session_id)
         vision = None
@@ -141,7 +142,8 @@ class Runtime:
         cfg = self.cfg
         emotion = EmotionEngine()
         repetition = RepetitionGuard()
-        builder = PromptBuilder(p, twin if cfg.twin else None)
+        stage_twin = twin if cfg.twin else None
+        builder = PromptBuilder(p, stage_twin, compact=cfg.prompt_style == "compact")
         try:
             tts = create_tts(cfg.tts, p)
         except TTSError as exc:
@@ -181,7 +183,7 @@ class Runtime:
             on_level=avatar.set_mouth if avatar else None,
             on_expression=avatar.express if avatar else None,
         )
-        output_filter = OutputFilter(cfg.safety, blocklist, secrets=[builder.system])
+        output_filter = OutputFilter(cfg.safety, blocklist, secrets=[p.system_prompt(stage_twin)])
         speaker = Speaker(p, tts, player, output_filter, emotion=emotion, repetition=repetition, bus=self.bus,
                           moderator=moderator, hooks=hooks, max_sentences=cfg.conductor.max_sentences,
                           first_clause_chars=cfg.conductor.first_clause_chars)

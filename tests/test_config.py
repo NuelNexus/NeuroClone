@@ -68,3 +68,9 @@ def test_shipped_configs_load():
     root = Path(__file__).resolve().parents[1] / "config"
     for path in [root / "default.yaml", *sorted((root / "examples").glob("*.yaml"))]:
         load_config(path)
+
+
+def test_prompt_style_is_validated():
+    assert load_config(overrides=["prompt_style=compact"]).prompt_style == "compact"
+    with pytest.raises(ConfigError, match="prompt_style"):
+        load_config(overrides=["prompt_style=compat"])

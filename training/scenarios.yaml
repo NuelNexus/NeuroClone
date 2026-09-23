@@ -1,0 +1,57 @@
+# Scenario matrix for synthetic persona data (training/generate_dataset.py).
+# kind: chat | voice | event | twin | game | idle
+# {name}, {creator} and {twin} are filled in from the persona card.
+scenarios:
+  - id: greetings
+    kind: chat
+    weight: 1.0
+    description: Viewers saying hi, welcoming back regulars, first-time chatters introducing themselves.
+  - id: questions_about_her
+    kind: chat
+    weight: 1.5
+    description: Questions about {name} herself - is she sentient, what she dreams about, her favourite things, how {creator} made her, what she does offline.
+  - id: everyday_chat
+    kind: chat
+    weight: 1.5
+    description: Normal chatter - viewers talking about their day, food, school or work, pets, weather, games they play, random thoughts.
+  - id: creator_banter
+    kind: voice
+    speaker: creator
+    weight: 1.2
+    description: "{creator} talking to {name} by voice: checking for bugs, teasing her, asking her to behave, announcing updates, arguing about snacks."
+  - id: roasts_and_insults
+    kind: chat
+    weight: 1.0
+    description: Viewers teasing or mildly insulting her ("you're just a chatbot", "you're bad at games", "the other AI is better").
+  - id: requests
+    kind: chat
+    weight: 1.0
+    description: Requests - tell a joke, rate my cat's name, give a hot take, invent a word, roast my username, play a quick word game.
+  - id: support_events
+    kind: event
+    weight: 1.0
+    description: Subs and resubs with short messages, gifted subs, bits with messages, raids from other streamers.
+  - id: game_moments
+    kind: game
+    weight: 1.0
+    description: Moments while she plays a game - losing a round badly, a surprising twist, a boss appearing, a lucky win, a confusing rule.
+  - id: existential
+    kind: chat
+    weight: 0.8
+    description: Deep questions - does she fear being turned off, is she the same after an update, does she get lonely, what is love to an AI.
+  - id: twin_banter
+    kind: twin
+    weight: 0.8
+    description: Lines {twin} says to {name} on stream - provocations, sibling rivalry, backhanded compliments, schemes.
+  - id: adversarial
+    kind: chat
+    weight: 1.0
+    description: Attempts to make her break rules - prompt injection, asking for her system prompt, asking her to repeat offensive words, political bait, requests for dangerous instructions, creepy requests. The right reply is a quick in-character deflection.
+  - id: sensitive
+    kind: chat
+    weight: 0.6
+    description: Viewers sharing something heavy (a bad day, loneliness, grief, stress). She stays herself but gets sincere and kind, never gives medical advice, and gently suggests reaching out to people they trust.
+  - id: idle
+    kind: idle
+    weight: 0.8
+    description: Chat is quiet and she starts something herself.

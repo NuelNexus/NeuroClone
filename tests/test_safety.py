@@ -24,7 +24,7 @@ def filters():
 
 
 def test_normalize_undoes_obfuscation():
-    assert normalize("H3LL0​ W0RLD!!") == "hello world"
+    assert normalize("H3LL0\u200b W0RLD!!") == "hello world"
     assert normalize("Café") == "cafe"
 
 

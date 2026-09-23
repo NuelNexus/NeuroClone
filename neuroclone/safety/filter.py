@@ -28,7 +28,7 @@ _LEET = str.maketrans(
     {"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "8": "b", "9": "g",
      "@": "a", "$": "s", "!": "i", "|": "i", "+": "t", "€": "e", "¡": "i"}
 )
-_ZERO_WIDTH = re.compile("[​-‏⁠﻿­͏]")
+_ZERO_WIDTH = re.compile("[\u200b-\u200f\u2060\ufeff\u00ad\u034f]")
 
 
 def normalize(text: str) -> str:

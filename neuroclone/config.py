@@ -225,6 +225,7 @@ class Config:
     twin: str = ""  # optional second persona sharing the stage
     creator: str = ""  # overrides the persona's creator name
     personas_dir: str = "config/personas"
+    prompt_style: str = "full"  # full | compact (for models fine-tuned with training/)
     llm: LLMConfig = field(default_factory=LLMConfig)
     utility_llm: Optional[LLMConfig] = None  # summaries/reflection/moderation; defaults to llm
     memory: MemoryConfig = field(default_factory=MemoryConfig)
@@ -339,6 +340,9 @@ def parse_override(text: str) -> dict:
     return node
 
 
+PROMPT_STYLES = ("full", "compact")
+
+
 def load_config(path: Optional[str | Path] = None, overrides: Optional[list[str]] = None) -> Config:
     data: dict = {}
     if path:
@@ -351,7 +355,10 @@ def load_config(path: Optional[str | Path] = None, overrides: Optional[list[str]
         data = loaded
     for item in overrides or []:
         data = _deep_merge(data, parse_override(item))
-    return from_dict(Config, expand_env(data))
+    cfg = from_dict(Config, expand_env(data))
+    if cfg.prompt_style not in PROMPT_STYLES:
+        raise ConfigError(f"prompt_style: expected one of {list(PROMPT_STYLES)}, got {cfg.prompt_style!r}")
+    return cfg
 
 
 def apply_mock_profile(cfg: Config) -> Config:

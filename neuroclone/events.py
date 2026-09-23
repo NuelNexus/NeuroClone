@@ -98,7 +98,8 @@ class VisionObservation:
 
 @dataclass
 class ModeratorCommand:
-    command: str  # pause | resume | skip | say | topic | creator | chat | block | unblock | mute | unmute | twin | look | reset_force
+    command: str  # pause | resume | skip | say | topic | creator | chat | block | unblock | mute | unmute | twin | look
+    #              | reset_force | quit (args: {"drain": True} finishes queued work first)
     args: dict = field(default_factory=dict)
     ts: float = field(default_factory=time.time)
 

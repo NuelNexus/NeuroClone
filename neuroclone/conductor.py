@@ -147,6 +147,7 @@ class Conductor:
         self._idle_target = self._next_idle_delay()
         self.stats = Stats()
         self.current: Optional[dict] = None
+        self.quit_when_idle = False  # set by a draining quit (e.g. end of piped console input)
 
     # ------------------------------------------------------------------ plumbing
     def submit(self, event: object) -> None:
@@ -182,11 +183,19 @@ class Conductor:
                 self._wake.clear()
                 if not self._running:
                     break
+                if self.quit_when_idle and self.paused:
+                    self._quit()
+                    break
                 if self.paused or self.speaking is not None:
                     continue
                 if self.clock() - self.last_speech_end < self.cfg.conductor.reply_gap_s and not self.pending_forces:
                     continue
                 stim = self.next_stimulus()
+                if self.quit_when_idle and (stim is None or stim.kind in ("idle", "game_voluntary")):
+                    if self.inbox.empty() and not self.pending_events:
+                        self._quit()
+                        break
+                    continue  # still draining: no filler talk, wait for the queued work
                 if stim is None:
                     continue
                 try:
@@ -210,6 +219,11 @@ class Conductor:
         self._running = False
         self.interrupt_all("now", "shutdown")
         self._wake.set()
+
+    def _quit(self) -> None:
+        self.stop()
+        if self.on_quit:
+            self.on_quit()
 
     async def _intake(self) -> None:
         while True:
@@ -317,9 +331,10 @@ class Conductor:
         elif name == "reset_force":
             self.pending_forces.clear()
         elif name == "quit":
-            self.stop()
-            if self.on_quit:
-                self.on_quit()
+            if cmd.args.get("drain"):
+                self.quit_when_idle = True  # finish what is queued first
+            else:
+                self._quit()
         self.bus.publish("moderation", {"command": name, "text": text})
 
     # ------------------------------------------------------------------ choosing what to do

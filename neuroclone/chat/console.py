@@ -72,8 +72,8 @@ class ConsoleInput:
         print(HELP, flush=True)
         while not self._closing:
             line = await loop.run_in_executor(None, sys.stdin.readline)
-            if line == "":  # EOF
-                self.submit(ModeratorCommand("quit"))
+            if line == "":  # EOF: Ctrl-D quits now; piped input gets its replies first
+                self.submit(ModeratorCommand("quit", {"drain": not sys.stdin.isatty()}))
                 return
             event = parse_console_line(line, self.creator)
             if isinstance(event, ModeratorCommand) and event.command == "help":

@@ -97,10 +97,10 @@ class Persona:
         return Persona(**data)
 
     # ------------------------------------------------------------------ prompt
-    def system_prompt(self, twin: Optional["Persona"] = None) -> str:
+    def system_prompt(self, twin: Optional["Persona"] = None, compact: bool = False) -> str:
         from .prompts import render_system_prompt
 
-        return render_system_prompt(self, twin)
+        return render_system_prompt(self, twin, compact=compact)
 
     def bits_used(self, text: str) -> list[str]:
         low = text.lower()

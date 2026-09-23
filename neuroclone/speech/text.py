@@ -212,7 +212,7 @@ def extract_tags(text: str, vocabulary: Iterable[str] = DEFAULT_EMOTIONS) -> tup
 
 _URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
 _EMOJI_RE = re.compile(
-    "[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF‍️]+", re.UNICODE
+    "[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF\u200d\ufe0f]+", re.UNICODE
 )
 
 

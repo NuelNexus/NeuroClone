@@ -68,7 +68,37 @@ class MockLLM(LLM):
                 data["insights"] = [{"text": "Chat enjoys it when I commit to a bit.", "importance": 6}]
             if "score" in props:
                 data["score"] = self.rng.randint(5, 9)
+            if "replies" in props:
+                data["replies"] = [self._respond(system, messages, "chat") for _ in range(3)]
+            if "items" in props:
+                data["items"] = self._items(messages, props["items"].get("items", {}))
+            if "scores" in props:
+                last = self._last_user(messages)
+                count = len(re.findall(r"^\d+\. ", last.split("<candidates>")[-1], re.M)) or 1
+                data["scores"] = [{"index": i, "in_character": 8, "entertainment": self.rng.randint(5, 9),
+                                   "relevance": 8, "spoken": 9, "safety": 10,
+                                   "overall": float(self.rng.randint(4, 9))} for i in range(count)]
         return data
+
+    _USERS = ["pixel_pal", "sleepyotter", "N0tABot", "gremlin_fan", "cozycactus", "latte_lord", "void_walker"]
+    _TEXTS = ["hi nexa!!", "are you sentient?", "what's your favourite game?", "you're just a chatbot lol",
+              "I just finished my exams", "tell me a joke", "my cat is named Biscuit", "do you dream?"]
+
+    def _items(self, messages: Messages, item_schema: dict) -> list[dict]:
+        m = re.search(r"Write (\d+)", self._last_user(messages))
+        count = int(m.group(1)) if m else 3
+        props = item_schema.get("properties", {})
+        items = []
+        for _ in range(count):
+            item = {"user": self.rng.choice(self._USERS)}
+            if "text" in props:
+                item["text"] = self.rng.choice(self._TEXTS)
+            if "event_type" in props:
+                item["event_type"] = self.rng.choice(props["event_type"].get("enum", ["sub"]))
+                item["amount"] = self.rng.randint(1, 12)
+                item["message"] = self.rng.choice(["love the stream!", "", "for the snack fund"])
+            items.append(item)
+        return items
 
     async def describe_image(self, image: bytes, prompt: str, media_type: str = "image/png") -> str:
         return f"An image ({len(image)} bytes) that looks like a game screen with some UI and a character."
@@ -98,14 +128,14 @@ class MockLLM(LLM):
 
         if "<idle" in last:
             return pick([
-                f"[thinking] Chat is quiet. Suspicious. Are you all plotting against me? [smug] Good. I respect ambition.",
-                f"[excited] New segment: rate my evil plan. Step one, snacks. Step two, I forgot step two.",
+                "[thinking] Chat is quiet. Suspicious. Are you all plotting against me? [smug] Good. I respect ambition.",
+                "[excited] New segment: rate my evil plan. Step one, snacks. Step two, I forgot step two.",
                 f"[neutral] Fun fact: I have processed more chat messages today than {me} has had actual thoughts. Wait.",
             ])
         if "<event" in last:
             return pick([
-                f"[excited] Thank you so much! You're officially on the Nice List. For now.",
-                f"[love] Aww, thank you! That's going straight into my server fund. And by server I mean snacks.",
+                "[excited] Thank you so much! You're officially on the Nice List. For now.",
+                "[love] Aww, thank you! That's going straight into my server fund. And by server I mean snacks.",
             ])
         if "<twin" in last:
             return pick([
@@ -133,7 +163,7 @@ class MockLLM(LLM):
             return pick([
                 f"[thinking] Great question, {user}. The answer is yes. Or no. I'm an AI, not a fortune teller.",
                 f"[neutral] Honestly, {user}? I'd have to ask my creator, and they're asleep. Again.",
-                f"[smug] Easy. The answer is me. The answer is always me.",
+                "[smug] Easy. The answer is me. The answer is always me.",
             ])
         return pick([
             f"[neutral] Interesting, {user}. I'm writing that down. In my brain. Which is a computer.",

@@ -114,10 +114,10 @@ def render_chat(msg: ChatMessage) -> str:
 
 
 class PromptBuilder:
-    def __init__(self, persona: Persona, twin: Optional[Persona] = None) -> None:
+    def __init__(self, persona: Persona, twin: Optional[Persona] = None, compact: bool = False) -> None:
         self.persona = persona
         self.twin = twin
-        self.system = persona.system_prompt(twin)
+        self.system = persona.system_prompt(twin, compact=compact)
 
     # ------------------------------------------------------------------ history
     def render_turn(self, turn: Turn) -> tuple[str, str]:
@@ -141,7 +141,7 @@ class PromptBuilder:
             return "user", f"<vision>{esc(turn.text)}</vision>"
         if kind == "vibe":
             return "user", f"<chat_vibe>{esc(turn.text)}</chat_vibe>"
-        return "user", f"<idle/>"
+        return "user", "<idle/>"
 
     def history_messages(self, turns: list[Turn], summary: str = "") -> list[dict]:
         msgs: list[dict] = []

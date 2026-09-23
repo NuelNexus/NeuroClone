@@ -64,6 +64,11 @@ def cmd_chat(args) -> int:
     cfg.chat = dataclasses.replace(cfg.chat, twitch=type(cfg.chat.twitch)(), youtube=type(cfg.chat.youtube)())
     if args.no_idle:
         cfg.conductor = dataclasses.replace(cfg.conductor, idle_after_s=0)
+    ok, detail = asyncio.run(probe_llm(cfg))
+    print(f"brain: {cfg.llm.provider} / {cfg.llm.model}: {detail}", flush=True)
+    if not ok:
+        print("  no model reachable. Start one (e.g. `ollama serve` and `ollama pull llama3.1:8b`), point "
+              "llm.base_url at your server, or try it offline with `neuroclone chat --mock`.", flush=True)
     return _run(cfg, console=True, print_captions=True)
 
 
@@ -159,6 +164,37 @@ def cmd_blocklist(args) -> int:
     return 0
 
 
+async def probe_llm(cfg: Config) -> tuple[bool, str]:
+    """Is the configured model reachable? Returns (ok, human-readable detail)."""
+    provider = cfg.llm.provider
+    if provider == "mock":
+        return True, "mock (offline improv engine)"
+    if provider in ("anthropic", "claude"):
+        try:
+            importlib.import_module("anthropic")
+        except ImportError:
+            return False, "pip install 'neuroclone[anthropic]'"
+        import os
+
+        has_key = bool(cfg.llm.api_key or os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+        return has_key, "API key found" if has_key else "set ANTHROPIC_API_KEY or llm.api_key"
+    import aiohttp
+
+    url = cfg.llm.base_url.rstrip("/") + "/models"
+    headers = {"Authorization": f"Bearer {cfg.llm.api_key}"} if cfg.llm.api_key else {}
+    try:
+        async with aiohttp.ClientSession(trust_env=True) as s:
+            async with s.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as r:
+                if r.status != 200:
+                    return False, f"{url} -> HTTP {r.status}"
+                data = await r.json(content_type=None)
+        ids = [m.get("id") for m in data.get("data", [])] if isinstance(data, dict) else []
+        found = cfg.llm.model in ids or any(cfg.llm.model in (i or "") for i in ids)
+        return True, f"reachable, model {cfg.llm.model!r} {'found' if found else 'NOT listed (pull it first?)'}"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"cannot reach {url} ({exc})"
+
+
 def _check(label: str, ok: bool, detail: str = "") -> bool:
     print(f"  [{'ok' if ok else '!!'}] {label}{': ' + detail if detail else ''}")
     return ok
@@ -195,36 +231,7 @@ def cmd_doctor(args) -> int:
     except Exception as exc:  # noqa: BLE001
         all_ok &= _check("persona", False, str(exc))
 
-    async def probe_llm() -> tuple[bool, str]:
-        provider = cfg.llm.provider
-        if provider == "mock":
-            return True, "mock (offline improv engine)"
-        if provider in ("anthropic", "claude"):
-            try:
-                importlib.import_module("anthropic")
-            except ImportError:
-                return False, "pip install 'neuroclone[anthropic]'"
-            import os
-
-            has_key = bool(cfg.llm.api_key or os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
-            return has_key, "API key found" if has_key else "set ANTHROPIC_API_KEY or llm.api_key"
-        import aiohttp
-
-        url = cfg.llm.base_url.rstrip("/") + "/models"
-        headers = {"Authorization": f"Bearer {cfg.llm.api_key}"} if cfg.llm.api_key else {}
-        try:
-            async with aiohttp.ClientSession(trust_env=True) as s:
-                async with s.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as r:
-                    if r.status != 200:
-                        return False, f"{url} -> HTTP {r.status}"
-                    data = await r.json(content_type=None)
-            ids = [m.get("id") for m in data.get("data", [])] if isinstance(data, dict) else []
-            found = cfg.llm.model in ids or any(cfg.llm.model in (i or "") for i in ids)
-            return True, f"reachable, model {cfg.llm.model!r} {'found' if found else 'NOT listed (pull it first?)'}"
-        except Exception as exc:  # noqa: BLE001
-            return False, f"cannot reach {url} ({exc})"
-
-    ok, detail = asyncio.run(probe_llm())
+    ok, detail = asyncio.run(probe_llm(cfg))
     all_ok &= _check(f"llm ({cfg.llm.provider})", ok, detail)
 
     tts_deps = {"edge": ["edge_tts", "miniaudio"], "kokoro": ["kokoro"]}.get(cfg.tts.provider, [])

@@ -226,3 +226,16 @@ Run the tests after each layer. Do not stop at stubs: if something is optional, 
 behind a lazy import instead of leaving a TODO.
 </working_style>
 ```
+
+---
+
+## Execution notes
+
+Where the build refined or went beyond the brief while executing it:
+
+- **`prompt_style: compact`**: a short system prompt for models fine-tuned with `training/`, so the personality lives in the weights (as reported for Neuro-sama) and prefill stays fast. The training data pairs compact prompts with replies written from the full persona.
+- **Hashed blocklist**: severe slurs ship as SHA-256 hashes of normalised tokens, so the repository never spells them out. Spelled-out variants ("a r e t a r d") are caught by sliding windows.
+- **Leetspeak only inside words**: normalisation undoes `h0l0caust` but keeps plain numbers and sentence punctuation intact (`1488` and `wow!!` keep their meaning).
+- **Near-duplicate chat removal**: after answering a question, rephrasings of it are dropped from the queue.
+- **Claude backend** uses the official SDK's beta namespace for `fallbacks="default"` refusal fallbacks, and puts the persona prompt in a cached system block.
+- **Training scripts** were verified against the current TRL 1.13 / transformers 5.17 / PEFT 0.21 APIs with a CPU smoke run. For example, `warmup_ratio` became a fractional `warmup_steps`, and DPO no longer takes `max_prompt_length`.
