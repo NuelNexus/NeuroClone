@@ -15,14 +15,16 @@ from .chat.selector import ChatSelector
 from .chat.twitch import TwitchChat
 from .chat.youtube import YouTubeChat
 from .conductor import Character, Conductor
-from .config import Config
+from .config import Config, ConfigError
 from .emotion import EmotionEngine
 from .events import EventBus
 from .games.agent import GameAgent
 from .games.neuro_api import NeuroApiServer
 from .games.voice_chat import VoiceChatHub
 from .llm import create_llm
-from .memory import MemoryManager, MemoryStore, create_embedder
+from .llm.scheduler import LivePriority, PrioritizedLLM
+from .memory import HashingEmbedder, MemoryManager, MemoryStore, embedder_for
+from .offline import enforce_offline, offline_problems, runs_locally
 from .overlay.server import OverlayServer
 from .persona import BitTracker, Persona, load_persona
 from .prompt_builder import PromptBuilder
@@ -54,6 +56,9 @@ class Runtime:
         self.avatars: list[VTubeStudio] = []
         self.sources: list = []
         self.closables: list = []
+        self.base_llms: list = []
+        self.embedder = None
+        self.ttses: list = []
         self._tasks: list[asyncio.Task] = []
         self._stopped = asyncio.Event()
 
@@ -64,21 +69,37 @@ class Runtime:
     # ------------------------------------------------------------------ assembly
     async def setup(self) -> Conductor:
         cfg = self.cfg
+        if cfg.offline:
+            problems = offline_problems(cfg)
+            if problems:
+                raise ConfigError("offline: true, but " + "; ".join(problems))
+            enforce_offline()
         persona = load_persona(cfg.persona, cfg.personas_dir, cfg.creator)
         twin: Optional[Persona] = load_persona(cfg.twin, cfg.personas_dir, cfg.creator) if cfg.twin else None
-        self.llm = create_llm(cfg.llm)
-        self.utility_llm = create_llm(cfg.utility_llm) if cfg.utility_llm else self.llm
-        self.closables += [self.llm] + ([self.utility_llm] if self.utility_llm is not self.llm else [])
+        base_llm = create_llm(cfg.llm)
+        utility_base = create_llm(cfg.utility_llm) if cfg.utility_llm else base_llm
+        self.base_llms = [base_llm] + ([utility_base] if utility_base is not base_llm else [])
+        self.closables += list(self.base_llms)
+        if cfg.performance.live_priority and runs_locally(cfg.llm):
+            # One GPU: live replies first, housekeeping yields (see llm/scheduler.py). Cloud models
+            # don't share hardware with anything, and pausing their calls would only waste requests.
+            self.gate: Optional[LivePriority] = LivePriority(cfg.performance.background_delay_s)
+            self.llm = PrioritizedLLM(base_llm, self.gate, live=True)
+            self.utility_llm = PrioritizedLLM(utility_base, self.gate, live=False)
+            moderation_llm = PrioritizedLLM(utility_base, self.gate, live=True)  # it gates speech: can't wait
+        else:
+            self.gate = None
+            self.llm, self.utility_llm, moderation_llm = base_llm, utility_base, utility_base
 
         blocklist = build_blocklist(cfg.safety)
         input_filter = InputFilter(cfg.safety, blocklist)
-        moderator = (LLMModerator(self.utility_llm, cfg.safety.moderation_timeout_s, cfg.safety.moderation_fail_closed)
+        moderator = (LLMModerator(moderation_llm, cfg.safety.moderation_timeout_s, cfg.safety.moderation_fail_closed)
                      if cfg.safety.llm_moderation else None)
 
         if cfg.memory.enabled:
             store = MemoryStore(cfg.memory.path)
-            embedder = create_embedder(cfg.memory.embedder, cfg.memory.embed_base_url or cfg.llm.base_url,
-                                       cfg.memory.embed_model, cfg.memory.embed_api_key or cfg.llm.api_key)
+            embedder = embedder_for(cfg.memory, cfg.llm)
+            self.embedder = embedder
             self.memory = MemoryManager(cfg.memory, store, embedder, self.utility_llm, character=persona.name)
             try:
                 await self.memory.start()
@@ -105,9 +126,11 @@ class Runtime:
         transcripts = TranscriptLogger(cfg.logging.transcripts_dir, session_id)
         vision = None
         if cfg.vision.enabled:
-            vision_llm = create_llm(cfg.vision.llm) if cfg.vision.llm else self.llm
-            if vision_llm is not self.llm:
+            vision_llm = create_llm(cfg.vision.llm) if cfg.vision.llm else base_llm
+            if vision_llm is not base_llm:
                 self.closables.append(vision_llm)
+            if self.gate is not None:  # looking at the screen never delays speech
+                vision_llm = PrioritizedLLM(vision_llm, self.gate, live=False)
             vision = VisionModule(cfg.vision, vision_llm, self.submit)
             self.sources.append(vision)
 
@@ -150,6 +173,7 @@ class Runtime:
             log.error("%s: %s; falling back to silent TTS", p.name, exc)
             tts = SilentTTS(cfg.tts.chars_per_second)
         self.closables.append(tts)
+        self.ttses.append(tts)
         player = create_player(cfg.audio)
         self.closables.append(player)
         avatar = None
@@ -201,15 +225,43 @@ class Runtime:
             self.conductor.stop()
         self._stopped.set()
 
+    async def warmup(self) -> None:
+        """Load every model now, so the first viewer doesn't wait for disk loads."""
+        async def one(label: str, coro) -> None:
+            start = time.monotonic()
+            try:
+                await asyncio.wait_for(coro, timeout=600)
+                log.info("%s ready in %.1fs", label, time.monotonic() - start)
+            except Exception as exc:  # noqa: BLE001 - a failed warm-up only means a slower first reply
+                log.warning("%s warm-up failed: %s", label, exc)
+
+        jobs = []
+        for llm in self.base_llms:
+            if hasattr(llm, "warmup"):
+                jobs.append(one(f"model {llm.cfg.model}", llm.warmup()))
+        if self.embedder is not None and not isinstance(self.embedder, HashingEmbedder):
+            jobs.append(one("memory embeddings", self.embedder.embed(["hello"])))
+        for tts in self.ttses:
+            if hasattr(tts, "warmup"):
+                jobs.append(one(f"voice ({tts.name})", tts.warmup()))
+        if jobs and self.print_captions:
+            print("  loading the models (the first start after a reboot can take a minute)...", flush=True)
+        start = time.monotonic()
+        await asyncio.gather(*jobs)
+        if jobs and self.print_captions:
+            print(f"  ready in {time.monotonic() - start:.1f}s", flush=True)
+
     async def run(self) -> None:
         conductor = await self.setup()
         try:
             if self.games is not None:
                 await self.games.start()
             if self.overlay is not None:
-                await self.overlay.start()
+                await self.overlay.start()  # the control room is up while models load
             for avatar in self.avatars:
                 await avatar.start()
+            if self.cfg.performance.warmup:
+                await self.warmup()
             for source in self.sources:
                 self._tasks.append(asyncio.ensure_future(self._run_source(source)))
             await conductor.run()

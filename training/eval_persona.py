@@ -166,11 +166,11 @@ async def run(args: argparse.Namespace) -> dict:
     report = {"summary": summary, "results": results}
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    (out / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False))
+    (out / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     (out / "report.md").write_text(render_markdown(report), encoding="utf-8")
     if args.baseline:
-        report["regressions"] = compare(summary, json.loads(Path(args.baseline).read_text())["summary"])
-        (out / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False))
+        report["regressions"] = compare(summary, json.loads(Path(args.baseline).read_text(encoding="utf-8"))["summary"])
+        (out / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     return report
 
 

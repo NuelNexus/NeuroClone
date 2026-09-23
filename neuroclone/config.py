@@ -24,9 +24,9 @@ class ConfigError(ValueError):
 
 @dataclass
 class LLMConfig:
-    provider: str = "openai"  # openai | anthropic | mock
-    model: str = "llama3.1:8b"
-    base_url: str = "http://localhost:11434/v1"
+    provider: str = "ollama"  # ollama (native API) | openai (any OpenAI-compatible server) | anthropic | mock
+    model: str = "qwen3.5:4b"
+    base_url: str = "http://localhost:11434"
     api_key: str = ""
     temperature: float = 0.9
     top_p: float = 0.95
@@ -42,6 +42,15 @@ class LLMConfig:
     fallbacks: bool = True
     # OpenAI-compatible only: merged into every request body (e.g. {"chat_template_kwargs": {...}}).
     extra_body: dict = field(default_factory=dict)
+    # Ollama only. Keep num_ctx/num_gpu identical in every config that uses the same model, or Ollama
+    # reloads it on each switch. Ollama's own default context is only 4k tokens on GPUs under 24 GB,
+    # which silently cuts the character prompt; 8k fits the persona, memories and chat history.
+    num_ctx: int = 8192
+    keep_alive: str = "30m"  # how long the model stays loaded between requests ("-1" = until Ollama stops)
+    think: bool = False  # thinking models (Qwen 3.5, Gemma 4...) reply seconds faster with this off
+    num_gpu: Optional[int] = None  # layers on the GPU: None = automatic, 0 = run this model on the CPU only
+    num_thread: int = 0  # CPU threads for layers on the CPU (0 = automatic)
+    options: dict = field(default_factory=dict)  # any other Ollama option, e.g. {repeat_penalty: 1.05}
     # Mock only: simulated per-token delay.
     mock_delay_s: float = 0.02
     seed: Optional[int] = None
@@ -51,9 +60,10 @@ class LLMConfig:
 class MemoryConfig:
     enabled: bool = True
     path: str = "data/memory.sqlite3"
-    embedder: str = "hash"  # hash | openai
+    embedder: str = "hash"  # hash (no model) | ollama | openai (any /embeddings endpoint)
     embed_model: str = "nomic-embed-text"
     embed_base_url: str = ""  # defaults to llm.base_url
+    embed_on_cpu: bool = True  # ollama: keep the embedding model off the GPU so it never evicts the chat model
     embed_api_key: str = ""
     recall_k: int = 5
     history_turns: int = 24
@@ -117,8 +127,8 @@ class SafetyConfig:
 
 @dataclass
 class TTSConfig:
-    provider: str = "silent"  # silent | azure | openai | edge | kokoro
-    voice: str = ""  # empty = persona default for this provider
+    provider: str = "silent"  # silent | kokoro (offline) | openai (any /audio/speech server) | azure | edge
+    voice: str = ""  # empty = persona default; kokoro can blend voices: "af_bella:0.7+af_sky:0.3"
     rate: str = ""
     pitch: str = ""
     azure_key: str = ""
@@ -126,7 +136,13 @@ class TTSConfig:
     base_url: str = "http://localhost:8880/v1"
     api_key: str = ""
     model: str = "kokoro"
-    kokoro_lang: str = "a"
+    kokoro_lang: str = ""  # empty = from the voice name (af_ = US English, bf_ = UK English, jf_ = Japanese...)
+    # Kokoro in-process (kokoro-onnx). Use the full-precision model: the int8 one is ~6x slower on CPUs.
+    kokoro_model: str = "models/kokoro/kokoro-v1.0.onnx"
+    kokoro_voices: str = "models/kokoro/voices-v1.0.bin"
+    device: str = "cpu"  # cpu | gpu (needs onnxruntime-gpu or onnxruntime-directml; the GPU is usually busy with the LLM)
+    threads: int = 0  # CPU threads for the voice model (0 = automatic)
+    pitch_semitones: float = 0.0  # shift any voice up/down without changing its speed, e.g. 2.5 for a brighter voice
     chars_per_second: float = 14.0
     timeout_s: float = 20.0
 
@@ -145,6 +161,8 @@ class STTConfig:
     model: str = "base.en"
     device: str = "auto"
     compute_type: str = "default"
+    cpu_threads: int = 0  # 0 = automatic
+    download_root: str = ""  # where Whisper models are cached (empty = the Hugging Face cache)
     language: str = "en"
     speaker: str = ""  # defaults to the persona's creator
     input_device: Optional[str] = None
@@ -214,6 +232,15 @@ class VisionConfig:
 
 
 @dataclass
+class PerformanceConfig:
+    # One GPU runs everything: live replies go first. Background LLM work (memory, reflections, summaries,
+    # vision) waits while a reply is being generated and is paused and retried if a reply starts.
+    live_priority: bool = True
+    background_delay_s: float = 0.5  # quiet time after a live reply before background work resumes
+    warmup: bool = True  # load the models at startup so the first reply isn't slow
+
+
+@dataclass
 class LoggingConfig:
     level: str = "INFO"
     transcripts_dir: str = "data/transcripts"
@@ -226,6 +253,7 @@ class Config:
     creator: str = ""  # overrides the persona's creator name
     personas_dir: str = "config/personas"
     prompt_style: str = "full"  # full | compact (for models fine-tuned with training/)
+    offline: bool = False  # refuse any cloud AI service: every model must run on this PC (chat sources still work)
     llm: LLMConfig = field(default_factory=LLMConfig)
     utility_llm: Optional[LLMConfig] = None  # summaries/reflection/moderation; defaults to llm
     memory: MemoryConfig = field(default_factory=MemoryConfig)
@@ -240,6 +268,7 @@ class Config:
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
     conductor: ConductorConfig = field(default_factory=ConductorConfig)
     vision: VisionConfig = field(default_factory=VisionConfig)
+    performance: PerformanceConfig = field(default_factory=PerformanceConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
 

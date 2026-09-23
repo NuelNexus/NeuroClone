@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 DEFAULT_MODEL = "claude-opus-5"
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 LATENCY_HINT = "Latency-sensitive; begin your visible answer immediately."
-_OLLAMA_DEFAULT = "http://localhost:11434/v1"
+_LOCAL_DEFAULTS = ("http://localhost:11434", "http://localhost:11434/v1")  # the llm.base_url defaults
 
 
 class AnthropicLLM(LLM):
@@ -40,7 +40,7 @@ class AnthropicLLM(LLM):
             kwargs: dict[str, Any] = {"max_retries": 2, "timeout": max(cfg.timeout_s, 30.0)}
             if cfg.api_key:
                 kwargs["api_key"] = cfg.api_key
-            if cfg.base_url and cfg.base_url != _OLLAMA_DEFAULT:
+            if cfg.base_url and cfg.base_url.rstrip("/") not in _LOCAL_DEFAULTS:
                 kwargs["base_url"] = cfg.base_url
             client = anthropic.AsyncAnthropic(**kwargs)
         self.client = client

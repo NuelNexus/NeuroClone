@@ -82,7 +82,7 @@ idle_ideas:
 voice:
   azure: {voice: en-US-AriaNeural, pitch: "-2%", rate: "-4%"}
   edge: {voice: en-US-AriaNeural, pitch: "-4Hz", rate: "-4%"}
-  kokoro: {voice: bf_emma, speed: 0.98}
+  kokoro: {voice: bf_emma, speed: 0.98, pitch_semitones: -0.5}
   openai: {voice: bf_emma, speed: 0.98}
 
 avatar_hotkeys: {}

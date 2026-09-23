@@ -137,7 +137,7 @@ class VTubeStudio:
 
     async def _authenticate(self) -> None:
         token_path = Path(self.cfg.token_path)
-        token = token_path.read_text().strip() if token_path.exists() else ""
+        token = token_path.read_text(encoding="utf-8").strip() if token_path.exists() else ""
         ident = {"pluginName": self.cfg.plugin_name, "pluginDeveloper": self.cfg.plugin_developer}
         if token:
             result = await self.request("AuthenticationRequest", {**ident, "authenticationToken": token})
@@ -150,7 +150,7 @@ class VTubeStudio:
         if not token:
             raise VTSError("VTube Studio did not issue a token")
         token_path.parent.mkdir(parents=True, exist_ok=True)
-        token_path.write_text(token)
+        token_path.write_text(token, encoding="utf-8")
         result = await self.request("AuthenticationRequest", {**ident, "authenticationToken": token})
         self.authenticated = bool(result.get("authenticated"))
         if not self.authenticated:

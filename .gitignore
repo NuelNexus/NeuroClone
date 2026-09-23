@@ -26,3 +26,8 @@ training/data/
 # Local config and secrets
 config/local*.yaml
 .env
+
+# Models downloaded by `neuroclone setup` (Kokoro voice, Whisper) and training exports
+models/
+*.onnx
+*.Modelfile

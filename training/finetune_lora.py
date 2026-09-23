@@ -23,11 +23,12 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+# Text-only bases that load with AutoModelForCausalLM and train with QLoRA on consumer GPUs.
+# (Qwen 3.5 and Gemma 4 are multimodal architectures with extra kernels; use them for inference.)
 PRESETS = {
-    "tiny": "Qwen/Qwen3-1.7B",
-    "2b": "Qwen/Qwen3.5-2B",
-    "small": "Qwen/Qwen3-4B-Instruct-2507",
-    "medium": "Qwen/Qwen3-8B",
+    "tiny": "Qwen/Qwen3-1.7B",  # QLoRA on a 6 GB GPU
+    "small": "Qwen/Qwen3-4B-Instruct-2507",  # QLoRA on an 8 GB GPU
+    "medium": "Qwen/Qwen3-8B",  # QLoRA on a 12-16 GB GPU
 }
 
 
@@ -155,7 +156,7 @@ def train_sft(args, base: str, out: Path) -> Path:
     adapter = out / "sft"
     trainer.save_model(str(adapter))
     tokenizer.save_pretrained(str(adapter))
-    (adapter / "train_metrics.json").write_text(json.dumps(result.metrics, indent=2))
+    (adapter / "train_metrics.json").write_text(json.dumps(result.metrics, indent=2), encoding="utf-8")
     return adapter
 
 
@@ -203,7 +204,7 @@ def train_dpo(args, base: str, out: Path, init_adapter: Optional[Path]) -> Path:
     adapter = out / "dpo"
     trainer.save_model(str(adapter))
     tokenizer.save_pretrained(str(adapter))
-    (adapter / "train_metrics.json").write_text(json.dumps(result.metrics, indent=2))
+    (adapter / "train_metrics.json").write_text(json.dumps(result.metrics, indent=2), encoding="utf-8")
     return adapter
 
 

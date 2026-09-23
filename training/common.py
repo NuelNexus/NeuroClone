@@ -114,8 +114,8 @@ def synthetic_context(rng: random.Random, persona: Persona, game: Optional[str] 
 
 
 def load_runtime_config(path: Optional[str], mock: bool, overrides: Optional[list[str]] = None) -> Config:
-    if path is None and Path("config/default.yaml").exists():
-        path = "config/default.yaml"
+    if path is None:
+        path = next((c for c in ("config/local.yaml", "config/default.yaml") if Path(c).exists()), None)
     cfg = load_config(path, overrides)
     return apply_mock_profile(cfg) if mock else cfg
 
@@ -140,8 +140,8 @@ def teacher_from_args(args: argparse.Namespace, cfg: Config) -> LLM:
 def add_teacher_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("-c", "--config", default=None, help="runtime config (default: config/default.yaml)")
     parser.add_argument("--set", action="append", metavar="KEY=VALUE", help="config override")
-    parser.add_argument("--teacher-provider", default=None, help="openai | anthropic (default: config llm)")
-    parser.add_argument("--teacher-model", default=None, help="e.g. claude-opus-5 or a local model name")
+    parser.add_argument("--teacher-provider", default=None, help="ollama | openai | anthropic (default: config llm)")
+    parser.add_argument("--teacher-model", default=None, help="a local model (e.g. gemma4:12b, free) or claude-opus-5")
     parser.add_argument("--teacher-base-url", default=None)
     parser.add_argument("--teacher-effort", default=None, help="anthropic effort for the teacher (default high)")
     parser.add_argument("--mock", action="store_true", help="use the offline mock teacher (for testing the pipeline)")

@@ -112,3 +112,19 @@ def test_finetune_rejects_wrong_dataset_shape(tmp_path):
     path.write_text(json.dumps({"messages": []}) + "\n")
     with pytest.raises(SystemExit, match="missing"):
         load_split(str(path), ("prompt", "completion"), 0.0, 0)
+
+
+def test_export_to_ollama_writes_a_modelfile(tmp_path, capsys):
+    from training import export_ollama
+
+    gguf = tmp_path / "nexa-f16.gguf"
+    gguf.write_bytes(b"GGUF")
+    merged = tmp_path / "merged"
+    merged.mkdir()
+    (merged / "config.json").write_text('{"model_type": "qwen3"}', encoding="utf-8")
+    assert export_ollama.main(["--gguf", str(gguf), "--merged", str(merged), "--dry-run"]) == 0
+    text = (tmp_path / "nexa-f16.Modelfile").read_text(encoding="utf-8")
+    assert text.startswith("FROM ") and "<|im_start|>" in text and 'PARAMETER stop "<|im_end|>"' in text
+    assert "--quantize q4_K_M" in capsys.readouterr().out
+    (merged / "config.json").write_text('{"model_type": "llama"}', encoding="utf-8")
+    assert export_ollama.detect_template(merged) == "llama3"

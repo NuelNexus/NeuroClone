@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "neuroclone"
 version = "0.1.0"
-description = "An open-source AI VTuber runtime inspired by Neuro-sama: streaming LLM brain, memory, safety, TTS/STT, VTube Studio, and a Neuro SDK-compatible game server."
+description = "An open-source AI VTuber runtime inspired by Neuro-sama that runs offline on your own PC: streaming LLM brain, memory, safety, local voice and ears, VTube Studio, and a Neuro SDK-compatible game server."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "NuelNexus" }]
@@ -22,8 +22,18 @@ anthropic = ["anthropic>=1.0"]
 audio = ["sounddevice>=0.4.6"]
 stt = ["faster-whisper>=1.0", "sounddevice>=0.4.6"]
 edge-tts = ["edge-tts>=6.1", "miniaudio>=1.59"]
-kokoro = ["kokoro>=0.9"]
+kokoro = ["kokoro-onnx>=0.5"]
+kokoro-gpu = ["kokoro-onnx[gpu]>=0.5"]
 vision = ["mss>=9.0", "pillow>=10.0"]
+# Everything for a fully offline PC: local voice, microphone, screen vision, hardware detection.
+local = [
+    "kokoro-onnx>=0.5",
+    "faster-whisper>=1.0",
+    "sounddevice>=0.4.6",
+    "mss>=9.0",
+    "pillow>=10.0",
+    "psutil>=5.9",
+]
 train = [
     "torch>=2.3",
     "transformers>=4.51",
@@ -35,12 +45,14 @@ train = [
 dev = ["pytest>=8.0"]
 all = [
     "anthropic>=1.0",
+    "kokoro-onnx>=0.5",
     "sounddevice>=0.4.6",
     "faster-whisper>=1.0",
     "edge-tts>=6.1",
     "miniaudio>=1.59",
     "mss>=9.0",
     "pillow>=10.0",
+    "psutil>=5.9",
 ]
 
 [project.scripts]

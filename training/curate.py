@@ -178,7 +178,7 @@ async def run(args: argparse.Namespace) -> dict:
         for row in sorted(rows, key=lambda r: r["id"]):
             writer.writerow({**row, "approve": ""})
     stats.update({"sft": len(sft), "dpo": len(dpo), "review_csv": str(out / "review.csv")})
-    (out / "curate_summary.json").write_text(json.dumps(stats, indent=2))
+    (out / "curate_summary.json").write_text(json.dumps(stats, indent=2), encoding="utf-8")
     return stats
 
 

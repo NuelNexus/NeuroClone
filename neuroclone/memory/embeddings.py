@@ -105,9 +105,68 @@ class OpenAIEmbedder(Embedder):
             await self._session.close()
 
 
-def create_embedder(kind: str, base_url: str = "", model: str = "", api_key: str = "") -> Embedder:
+class OllamaEmbedder(Embedder):
+    """Ollama's native /api/embed. ``on_cpu`` keeps the embedding model off the GPU (it is tiny and
+    fast on a CPU), so it never competes with the chat model for VRAM."""
+
+    def __init__(self, base_url: str, model: str, *, on_cpu: bool = True, keep_alive: str = "30m",
+                 timeout_s: float = 30.0) -> None:
+        from ..llm.ollama import keep_alive_value, native_url
+
+        self.base_url = native_url(base_url)
+        self.model = model
+        self.options = {"num_gpu": 0} if on_cpu else {}
+        self.keep_alive = keep_alive_value(keep_alive)
+        self.timeout_s = timeout_s
+        self.dim = 0
+        self._session: Optional[aiohttp.ClientSession] = None
+
+    @property
+    def signature(self) -> str:
+        return f"ollama:{self.model}"
+
+    async def embed(self, texts: list[str]) -> np.ndarray:
+        if not texts:
+            return np.zeros((0, self.dim or 1), dtype=np.float32)
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(trust_env=False)
+        body = {"model": self.model, "input": texts, "keep_alive": self.keep_alive}
+        if self.options:
+            body["options"] = self.options
+        async with self._session.post(f"{self.base_url}/api/embed", json=body,
+                                      timeout=aiohttp.ClientTimeout(total=self.timeout_s)) as resp:
+            if resp.status != 200:
+                text = (await resp.text())[:200]
+                hint = f" (run `ollama pull {self.model}`)" if resp.status == 404 or "not found" in text else ""
+                raise RuntimeError(f"Ollama embeddings returned {resp.status}: {text}{hint}")
+            payload = await resp.json()
+        mat = np.asarray(payload["embeddings"], dtype=np.float32)
+        mat /= np.clip(np.linalg.norm(mat, axis=1, keepdims=True), 1e-9, None)
+        self.dim = mat.shape[1]
+        return mat
+
+    async def aclose(self) -> None:
+        if self._session is not None and not self._session.closed:
+            await self._session.close()
+
+
+def create_embedder(kind: str, base_url: str = "", model: str = "", api_key: str = "", *,
+                    on_cpu: bool = True) -> Embedder:
+    if kind == "ollama":
+        return OllamaEmbedder(base_url, model or "nomic-embed-text", on_cpu=on_cpu)
     if kind == "openai":
         return OpenAIEmbedder(base_url, model, api_key)
     if kind != "hash":
         log.warning("unknown memory.embedder %r, using the hashing embedder", kind)
     return HashingEmbedder()
+
+
+def embedder_for(memory_cfg, llm_cfg) -> Embedder:
+    """Build the configured embedder, defaulting its server to the chat model's server."""
+    base = memory_cfg.embed_base_url or llm_cfg.base_url
+    if memory_cfg.embedder == "openai" and not memory_cfg.embed_base_url and llm_cfg.provider == "ollama":
+        from ..llm.ollama import native_url
+
+        base = native_url(base) + "/v1"  # Ollama's OpenAI-compatible endpoints live under /v1
+    return create_embedder(memory_cfg.embedder, base, memory_cfg.embed_model,
+                           memory_cfg.embed_api_key or llm_cfg.api_key, on_cpu=memory_cfg.embed_on_cpu)

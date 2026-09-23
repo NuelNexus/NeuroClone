@@ -1,32 +1,43 @@
-# NeuroClone default config: a fully local setup.
-#   LLM:  Ollama (https://ollama.com). `ollama pull llama3.1:8b` (or any chat model)
-#   TTS:  silent until you pick a voice (see tts below)
+# NeuroClone default config: everything local, free, and offline once downloaded.
+#
+# Easiest start: `neuroclone setup`. It detects your CPU/RAM/GPU, picks the right models,
+# writes config/local.yaml tuned for your PC, and downloads everything once.
+#
+# This file is the generic fallback:
+#   LLM:  Ollama (https://ollama.com): `ollama pull qwen3.5:4b` (or any chat model)
+#   TTS:  silent until you pick a voice (kokoro is offline: pip install 'neuroclone[local]')
 # Every key is optional; anything omitted uses the default in neuroclone/config.py.
 # Strings can use ${ENV_VAR} or ${ENV_VAR:-default}.
 
 persona: nexa            # built-in: nexa, vexa. Or a path to your own YAML card.
 twin: ""                 # set to "vexa" for twin mode (two characters on one stage)
 creator: ""              # your name, if you want the characters to call you something other than "Nuel"
+offline: false           # true = refuse any cloud AI service (neuroclone setup turns this on)
 
 llm:
-  provider: openai       # openai (any OpenAI-compatible server) | anthropic | mock
-  base_url: ${OPENAI_BASE_URL:-http://localhost:11434/v1}
-  model: ${NEUROCLONE_MODEL:-llama3.1:8b}
-  api_key: ${OPENAI_API_KEY:-}
+  provider: ollama       # ollama (native API, recommended) | openai (LM Studio, llama.cpp, vLLM...) | anthropic | mock
+  base_url: ${OLLAMA_HOST_URL:-http://localhost:11434}
+  model: ${NEUROCLONE_MODEL:-qwen3.5:4b}
+  num_ctx: 8192          # Ollama's default is 4k on most GPUs, which cuts off the character prompt
+  keep_alive: 30m        # keep the model loaded between replies
+  think: false           # thinking models reply seconds faster without it
   temperature: 0.9
   max_tokens: 350
-  # For Qwen3-style thinking models on llama.cpp/vLLM you can turn thinking off per request:
+  # LM Studio / llama.cpp server instead:
+  # provider: openai
+  # base_url: http://localhost:1234/v1
   # extra_body: {chat_template_kwargs: {enable_thinking: false}}
 
-# Optional: a separate (smaller/cheaper) model for summaries, reflection and moderation.
-# utility_llm: {provider: openai, base_url: http://localhost:11434/v1, model: llama3.2:3b}
+# Optional: a separate model for summaries, reflection and moderation. By default the chat model
+# does it in the background (it waits for live replies; see performance.live_priority).
+# utility_llm: {provider: ollama, model: qwen3.5:2b, num_gpu: 0}   # a small model on the CPU
 
 memory:
   enabled: true
   path: data/memory.sqlite3
-  embedder: hash         # hash (offline, no model) | openai (any /embeddings endpoint)
-  # embedder: openai
-  # embed_model: nomic-embed-text   # `ollama pull nomic-embed-text`
+  embedder: hash         # hash (no model) | ollama (`ollama pull nomic-embed-text`, runs on the CPU)
+  # embedder: ollama
+  # embed_model: nomic-embed-text
 
 chat:
   twitch:
@@ -43,20 +54,19 @@ safety:
   llm_moderation: false  # second opinion from utility_llm, runs in parallel with TTS
 
 tts:
-  provider: silent       # silent | azure | openai | edge | kokoro
-  # Kokoro-FastAPI (local, fast): docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu
-  # provider: openai
-  # base_url: http://localhost:8880/v1
-  # model: kokoro
-  # Azure (the kind of voice Neuro-sama uses): provider: azure, azure_key: ${AZURE_SPEECH_KEY}, azure_region: eastus
+  provider: silent       # silent | kokoro (offline) | openai (any /audio/speech server) | azure | edge
+  # provider: kokoro     # files: models/kokoro/ (neuroclone setup downloads them)
+  # pitch_semitones: 0   # shift the voice up or down without changing its speed
   azure_key: ${AZURE_SPEECH_KEY:-}
 
 audio:
   player: auto           # auto | sounddevice | null | wav
 
 stt:
-  enabled: false         # pip install 'neuroclone[stt]' then set true to talk to her by voice
+  enabled: false         # pip install 'neuroclone[local]' then set true to talk to her by voice
   model: base.en
+  device: cpu
+  compute_type: int8
 
 avatar:
   enabled: false         # VTube Studio: Settings > Start API (port 8001), then set true
@@ -70,6 +80,10 @@ games:
 overlay:
   enabled: true          # dashboard: http://127.0.0.1:8080   OBS captions: http://127.0.0.1:8080/overlay
   port: 8080
+
+performance:
+  live_priority: true    # one GPU: live replies first, background memory work waits its turn
+  warmup: true           # load models at startup instead of on the first message
 
 conductor:
   idle_after_s: 14       # start a topic after this much silence (0 disables)

@@ -2,6 +2,8 @@
 
 An open-source AI VTuber runtime, built by researching how [Neuro-sama](https://www.twitch.tv/vedal987) works and then engineering past her known weak spots. It chats with Twitch/YouTube viewers, talks with you by voice, plays games through the official Neuro SDK protocol, drives a VTube Studio avatar, remembers people across streams, and can fine-tune its own small model from its streams.
 
+It runs on your own PC, **offline and free**: a one-click installer detects your GPU, picks models that fit, downloads them once, and from then on no API keys are needed and no data leaves your machine. See [docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md).
+
 It ships with two **original** characters: **Nexa**, a self-aware AI streamer with gremlin energy, and her twin **Vexa**, calm, theatrical and politely menacing. Make your own with a YAML card.
 
 > NeuroClone is not affiliated with Neuro-sama or Vedal. It recreates the *architecture*, not the character: don't use it to impersonate them.
@@ -14,13 +16,14 @@ It ships with two **original** characters: **Nexa**, a self-aware AI streamer wi
 
 ## What you get
 
-- **Streaming brain**: any OpenAI-compatible server (Ollama, LM Studio, llama.cpp, vLLM, OpenRouter), Claude, or an offline mock. The first sentence is spoken while the rest is still generating.
+- **Runs on your PC, tuned to it**: `neuroclone setup` detects CPU, RAM and GPU (NVIDIA, AMD, Intel, Apple), picks the best local models that fit (Qwen 3.5 / Gemma 4 through Ollama), writes a tuned config and benchmarks it. The GPU goes to the brain; the voice, ears and memory run on the CPU. Live replies always get the GPU first.
+- **Streaming brain**: Ollama's native API (context size, thinking off and model residency set per request), any OpenAI-compatible server (LM Studio, llama.cpp, vLLM), Claude, or an offline mock. The first sentence is spoken while the rest is still generating.
 - **A character, not a chatbot**: persona cards → a stable, cache-friendly character prompt; emotion tags drive the face and voice; running bits have hourly budgets so they stay funny.
 - **Memory across streams**: SQLite + vector recall scored by relevance, recency and importance; viewer profiles; facts viewers share; periodic reflections; an end-of-stream summary and diary.
 - **Chat intelligence**: every message gets an inspectable score (mentions, questions, support, newcomers, novelty, fairness, spam), softmax sampling for liveliness, and "vibe" detection when chat converges on one thing.
 - **Graceful safety**: input *and* output filtering per sentence, normalisation against leetspeak and spacing tricks, hashed slur lists (no slurs in the repo), injection and PII checks, prompt-leak detection, optional LLM moderation run in parallel with TTS. A blocked sentence becomes an in-character deflection instead of a dead "Filtered."
 - **Games**: a server that implements the **official Neuro SDK spec** (actions, forces with priorities, results, `speech_finished`, the voice chat side-channel), so games built for Neuro can connect by setting `NEURO_SDK_WS_URL`. A validating game agent retries bad moves and can never deadlock a forced decision.
-- **Voice, ears and face**: Azure / Kokoro / edge-tts / OpenAI-compatible TTS with emotional prosody; faster-whisper STT with barge-in and echo guard; VTube Studio lip-sync injected straight from the audio envelope (no virtual cable) plus mood-driven smile and expression hotkeys.
+- **Voice, ears and face**: offline Kokoro voices in-process (blendable, pitch-shiftable, faster than real time on a CPU), plus Azure / edge-tts / any OpenAI-compatible TTS, with emotional prosody; faster-whisper STT with barge-in and echo guard; VTube Studio lip-sync injected straight from the audio envelope (no virtual cable) plus mood-driven smile and expression hotkeys.
 - **Twins**: two characters on one stage with turn-taking and bounded banter.
 - **Control room**: a local dashboard (live transcript with latency, chat with filter verdicts, "why this message?", mood, games, memory search, moderator controls) and an OBS caption overlay.
 - **Self-improvement loop**: generate persona data with a teacher model, curate your own stream transcripts, LoRA/QLoRA fine-tune a small model, evaluate with a regression gate, export to GGUF. See [`training/README.md`](training/README.md).
@@ -42,7 +45,18 @@ It ships with two **original** characters: **Nexa**, a self-aware AI streamer wi
 
 Neuro-sama also has years of iteration, her own data and a lot of craft behind her. NeuroClone gives you the architecture and tooling; how good *your* character gets depends on the model, the persona card and the data you feed it.
 
-## Quick start (no GPU, no API keys)
+## Quick start
+
+**On your PC (Windows)**: download the repository, double-click **`install.bat`**, then **`start.bat`**. The installer sets up Python packages and [Ollama](https://ollama.com), detects your hardware, downloads the right models once, and benchmarks them. Linux and macOS: `scripts/install.sh`. Full guide, including what gets picked for each GPU size: [docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md).
+
+```bash
+# the same by hand, on any OS
+pip install -e '.[local]'
+neuroclone setup            # detect, plan, write config/local.yaml, download, benchmark
+neuroclone chat             # talk to her (the control room is at http://127.0.0.1:8080)
+```
+
+**Try it in 30 seconds** (no GPU, no downloads): an offline mock brain that exercises the whole pipeline.
 
 ```bash
 git clone https://github.com/NuelNexus/NeuroClone && cd NeuroClone
@@ -62,17 +76,18 @@ printf 'alice: hi nexa!\n> say hi to everyone\n/sub bob 3\n' | neuroclone chat -
 ## Real setups
 
 **1. Brain.** Pick one:
-- Local: `ollama pull llama3.1:8b` (or any chat model), then `neuroclone chat`. The default config points at Ollama.
+- Local (recommended): `neuroclone setup` picks and downloads a model for your GPU. By hand: `ollama pull gemma4:12b`, then set `llm.model`.
 - LM Studio / llama.cpp / vLLM: see [`config/examples/local-lmstudio-kokoro.yaml`](config/examples/local-lmstudio-kokoro.yaml).
 - Claude: `pip install -e '.[anthropic]'`, `export ANTHROPIC_API_KEY=...`, `neuroclone chat -c config/examples/claude.yaml`. Uses `claude-opus-5` at low effort for fast live replies, with server-side refusal fallbacks on (`llm.fallbacks: false` turns them off).
 
 **2. Voice.** Set `tts.provider`:
-- `openai` + [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI) (`docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu`): local and fast.
+- `kokoro` (offline, free, in-process; `pip install -e '.[local]'`, files fetched by `neuroclone setup`). Blend voices (`af_bella:0.7+af_sky:0.3`) and shift the pitch (`tts.pitch_semitones: 2`) for a character voice.
 - `azure` with `AZURE_SPEECH_KEY`: the same kind of voice Neuro-sama uses (Azure neural TTS + SSML prosody).
 - `edge` (`pip install -e '.[edge-tts]'`): free online voices.
-- Install `pip install -e '.[audio]'` for speaker output. Test a voice with `neuroclone say "[happy] Hello chat!"`.
+- `openai`: any `/audio/speech` server, such as [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI).
+- Test a voice with `neuroclone say "[happy] Hello chat!"`.
 
-**3. Ears.** `pip install -e '.[stt]'` and set `stt.enabled: true` to talk to her by microphone. When you start talking she stops and listens.
+**3. Ears.** Set `stt.enabled: true` (or `neuroclone setup --mic`) to talk to her by microphone. Whisper runs on the CPU, and when you start talking she stops and listens.
 
 **4. Face.** In VTube Studio: Settings → Start API (port 8001). Set `avatar.enabled: true` and map emotions to your model's hotkeys (`avatar.hotkeys: {happy: Smile, angry: Angry}`). Click "Allow" in VTube Studio the first time.
 
@@ -84,16 +99,17 @@ printf 'alice: hi nexa!\n> say hi to everyone\n/sub bob 3\n' | neuroclone chat -
 
 Run `neuroclone doctor` any time to check models, voices, devices and ports.
 
-### Hardware tiers
+### Hardware tiers (all local and free)
 
-| Setup | Brain | Voice | Notes |
+| GPU | Brain (balanced) | Voice, ears, memory | Notes |
 |---|---|---|---|
-| Laptop, no GPU | Claude or OpenRouter | edge-tts or Azure | Everything else runs locally |
-| 8 GB GPU | 4B model at Q4 (or your fine-tune) | Kokoro | Use `prompt_style: compact` with a fine-tuned model |
-| 12–16 GB GPU | 8B model at Q4 | Kokoro + faster-whisper | The sweet spot for a fully local stream |
-| 24 GB+ | 14B–32B | Kokoro + whisper + vision model | Better game decisions and wit |
+| none | Qwen 3.5 2B on the CPU | Kokoro, Whisper, embeddings on the CPU | Works; replies take a second or two |
+| 6 GB | Qwen 3.5 4B | on the CPU | Fast and fun |
+| 8 GB | Gemma 4 E4B (quality: Qwen 3.5 9B) | on the CPU | A typical streaming PC |
+| 12–16 GB | Gemma 4 12B (quality on 16 GB: Gemma 4 26B MoE) | on the CPU | The sweet spot |
+| 24 GB+ | Gemma 4 31B | on the CPU | Best wit and game decisions |
 
-Latency is measured on every turn (time to first token and to first audio) and shown in the control room.
+`neuroclone setup` makes this choice for you and reserves VRAM for OBS and VTube Studio while streaming. Latency is measured on every turn (time to first token and to first audio) and shown in the control room; `neuroclone bench` measures it on demand.
 
 ## Make your own character
 
@@ -136,6 +152,8 @@ Details are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 | Command | What it does |
 |---|---|
+| `neuroclone setup [--prefer speed\|balanced\|quality] [--mic]` | Detect this PC, pick models, write `config/local.yaml`, download, benchmark |
+| `neuroclone bench` | Time to first word, tokens/s, GPU share and voice speed on this PC |
 | `neuroclone chat [--mock]` | Talk to the character in your terminal (control room included) |
 | `neuroclone run [--console]` | Go live: chat sources, voice, avatar, games, dashboard |
 | `neuroclone neuro-api` | Neuro SDK game server only, for testing integrations |
@@ -145,13 +163,13 @@ Details are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 | `neuroclone memory stats \| search Q \| forget USER` | Inspect or edit long-term memory |
 | `neuroclone blocklist fetch` | Download a community word list |
 
-Add `-c config.yaml` and `--set section.key=value` to any of them.
+Add `-c config.yaml` and `--set section.key=value` to any of them. Without `-c`, `config/local.yaml` (written by setup) is used if it exists, else `config/default.yaml`.
 
 ## Development
 
 ```bash
 pip install -e '.[dev]'
-pytest                      # ~125 tests, fully offline: no network, GPU or audio device needed
+pytest                      # ~160 tests, fully offline: no network, GPU or audio device needed
 ```
 
 ```
@@ -164,4 +182,6 @@ tests/             pytest suite
 
 ## Status
 
-Tested thoroughly offline: unit tests, a real websocket Neuro API session, the voice side-channel, VTube Studio against a fake server, and full runtime runs with the mock brain. The fine-tuning script was smoke-tested end to end on CPU with a tiny model against current TRL/transformers/PEFT. Not yet exercised in this repo: live Twitch/YouTube streams, real Azure/Kokoro voices, real VTube Studio, real game mods, and GPU fine-tuning runs. Those integrations follow their public APIs, and issues and PRs are welcome.
+Tested thoroughly offline: unit tests, a real websocket Neuro API session, the voice side-channel, VTube Studio against a fake server, the Ollama backend and the whole runtime against a fake Ollama server, the live-priority scheduler, the hardware planner, and full runtime runs with the mock brain. The real Kokoro voice was run on a CPU (full precision is faster than real time; the int8 model was about 6x slower, so setup avoids it) and the pitch shift was measured. The fine-tuning script was smoke-tested end to end on CPU with a tiny model against current TRL/transformers/PEFT.
+
+Not yet exercised in this repo: a real Ollama server on a GPU (the sandbox had none), live Twitch/YouTube streams, real VTube Studio, real game mods, the Windows installer on a real Windows PC, and GPU fine-tuning runs. Those follow their public APIs and documented behavior, and issues and PRs are welcome.

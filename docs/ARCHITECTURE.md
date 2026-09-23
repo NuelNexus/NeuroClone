@@ -117,6 +117,28 @@ Claude refusals (`stop_reason: refusal`) are handled like filtered replies. Mode
 
 `games/agent.py` turns a force into a decision with a strict JSON schema `{say, action (enum), data (JSON string)}`. It validates `data` against the action's schema and retries locally with the error. It then retries with the game's failure message, as the SDK does, and falls back to a schema-valid random action so the game never deadlocks. The `say` line is spoken while the action executes.
 
+## Running on one consumer PC
+
+The local setup (see [LOCAL_SETUP.md](LOCAL_SETUP.md)) treats the GPU as the scarce resource:
+
+```mermaid
+flowchart LR
+  HW[hardware.py: CPU, RAM, GPU/VRAM] --> PL[planner.py: model + context + threads]
+  REG[(Ollama registry sizes)] --> PL
+  PL --> CFG[config/local.yaml, offline: true]
+  CFG --> RT[Runtime]
+  RT -->|GPU| LLM[Ollama: chat + vision model]
+  RT -->|CPU| TTS[Kokoro voice]
+  RT -->|CPU| STT[Whisper]
+  RT -->|CPU, num_gpu 0| EMB[Embedding model]
+```
+
+- `llm/ollama.py` uses Ollama's native API to set `num_ctx`, `think: false`, `keep_alive` and `num_gpu` on every request, with the same load options everywhere so Ollama never reloads the model. Structured calls use `format: <schema>`, which is grammar-constrained.
+- `llm/scheduler.py` (`LivePriority`) wraps every LLM user. Replies, game decisions and moderation are *live*. Memory, reflections, summaries and vision are *background*: they wait for a quiet GPU, and when a live call starts they are cancelled (stopping generation server-side) and retried. After a few preemptions a background call is allowed to finish, so it can't starve.
+- `Runtime.warmup()` loads the LLM, embedder and voice before the first viewer arrives.
+- `offline.py` rejects cloud providers and non-local URLs when `offline: true`, and sets the Hugging Face offline flags.
+- The Kokoro voice raises pitch with the "tape trick": the model speaks `ratio` times slower, then FFT resampling shortens the audio back, so duration is kept and pitch rises by `ratio`, with no time-stretch artifacts. Emotions add their own small pitch and rate shifts.
+
 ## Extending
 
 - **New LLM backend**: subclass `llm.base.LLM` (`stream`, optionally `complete_json` and `describe_image`) and register it in `llm/__init__.py`.

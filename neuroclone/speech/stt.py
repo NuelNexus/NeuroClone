@@ -47,12 +47,13 @@ class Transcriber(abc.ABC):
 
 class FasterWhisperTranscriber(Transcriber):
     def __init__(self, model: str = "base.en", device: str = "auto", compute_type: str = "default",
-                 language: str = "en") -> None:
+                 language: str = "en", cpu_threads: int = 0, download_root: str = "") -> None:
         try:
             from faster_whisper import WhisperModel
         except ImportError as exc:
             raise STTError("speech recognition needs: pip install 'neuroclone[stt]'") from exc
-        self.model = WhisperModel(model, device=device, compute_type=compute_type)
+        self.model = WhisperModel(model, device=device, compute_type=compute_type, cpu_threads=cpu_threads,
+                                  download_root=download_root or None)
         self.language = language or None
         self._lock = asyncio.Lock()
 
@@ -163,7 +164,8 @@ def create_transcriber(cfg: STTConfig) -> Optional[Transcriber]:
     if not cfg.enabled:
         return None
     try:
-        return FasterWhisperTranscriber(cfg.model, cfg.device, cfg.compute_type, cfg.language)
+        return FasterWhisperTranscriber(cfg.model, cfg.device, cfg.compute_type, cfg.language, cfg.cpu_threads,
+                                        cfg.download_root)
     except Exception as exc:  # noqa: BLE001
         log.error("speech recognition disabled: %s", exc)
         return None

@@ -10,6 +10,7 @@ from neuroclone.llm import create_llm
 from neuroclone.llm.anthropic_backend import FALLBACK_BETA, AnthropicLLM
 from neuroclone.llm.base import LLMError, LLMRefusal
 from neuroclone.llm.mock import MockLLM
+from neuroclone.llm.ollama import OllamaLLM
 from neuroclone.llm.openai_compat import OpenAICompatLLM
 from tests.conftest import run
 
@@ -186,6 +187,7 @@ def test_mock_stays_in_character_and_makes_valid_json():
 
 def test_factory():
     assert isinstance(create_llm(LLMConfig(provider="mock")), MockLLM)
-    assert isinstance(create_llm(LLMConfig(provider="ollama")), OpenAICompatLLM)
+    assert isinstance(create_llm(LLMConfig(provider="ollama")), OllamaLLM)
+    assert isinstance(create_llm(LLMConfig(provider="lmstudio")), OpenAICompatLLM)
     with pytest.raises(LLMError):
         create_llm(LLMConfig(provider="nope"))

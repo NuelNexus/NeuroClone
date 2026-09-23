@@ -22,10 +22,16 @@ COMMUNITY_BLOCKLIST = (
 )
 
 
+def default_config_path() -> Optional[str]:
+    """config/local.yaml (written by `neuroclone setup` for this PC) wins over config/default.yaml."""
+    for candidate in ("config/local.yaml", "config/default.yaml"):
+        if Path(candidate).exists():
+            return candidate
+    return None
+
+
 def _load(args) -> Config:
-    path = args.config
-    if path is None and Path("config/default.yaml").exists():
-        path = "config/default.yaml"
+    path = args.config or default_config_path()
     cfg = load_config(path, getattr(args, "set", None))
     if getattr(args, "mock", False):
         cfg = apply_mock_profile(cfg)
@@ -67,7 +73,7 @@ def cmd_chat(args) -> int:
     ok, detail = asyncio.run(probe_llm(cfg))
     print(f"brain: {cfg.llm.provider} / {cfg.llm.model}: {detail}", flush=True)
     if not ok:
-        print("  no model reachable. Start one (e.g. `ollama serve` and `ollama pull llama3.1:8b`), point "
+        print("  no model reachable. Run `neuroclone setup` (picks and downloads a model for this PC), point "
               "llm.base_url at your server, or try it offline with `neuroclone chat --mock`.", flush=True)
     return _run(cfg, console=True, print_captions=True)
 
@@ -125,7 +131,7 @@ def cmd_persona(args) -> int:
 
 def cmd_memory(args) -> int:
     cfg = _load(args)
-    from .memory import MemoryManager, MemoryStore, create_embedder
+    from .memory import MemoryManager, MemoryStore, embedder_for
 
     store = MemoryStore(cfg.memory.path)
     if args.action == "stats":
@@ -138,8 +144,7 @@ def cmd_memory(args) -> int:
         return 0
 
     async def search() -> None:
-        embedder = create_embedder(cfg.memory.embedder, cfg.memory.embed_base_url or cfg.llm.base_url,
-                                   cfg.memory.embed_model, cfg.memory.embed_api_key or cfg.llm.api_key)
+        embedder = embedder_for(cfg.memory, cfg.llm)
         mm = MemoryManager(cfg.memory, store, embedder, None, session_id="cli-search")
         for recall in await mm.recall(args.query, k=args.k, exclude_recent_s=0):
             r = recall.record
@@ -178,6 +183,21 @@ async def probe_llm(cfg: Config) -> tuple[bool, str]:
 
         has_key = bool(cfg.llm.api_key or os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
         return has_key, "API key found" if has_key else "set ANTHROPIC_API_KEY or llm.api_key"
+    if provider == "ollama":
+        from .llm.ollama import OllamaLLM
+
+        llm = OllamaLLM(cfg.llm)
+        try:
+            version = await llm.version()
+            if not await llm.has_model():
+                return False, f"Ollama {version} is running but has no {cfg.llm.model!r}: `ollama pull {cfg.llm.model}`"
+            where = await llm.residency()
+            loaded = f", loaded {where['gpu_pct']}% on the GPU" if where else ""
+            return True, f"Ollama {version}, model installed{loaded}"
+        except Exception as exc:  # noqa: BLE001
+            return False, str(exc)
+        finally:
+            await llm.aclose()
     import aiohttp
 
     url = cfg.llm.base_url.rstrip("/") + "/models"
@@ -214,7 +234,7 @@ def cmd_doctor(args) -> int:
     print(f"NeuroClone {__version__} doctor")
     try:
         cfg = _load(args)
-        source = args.config or ("config/default.yaml" if Path("config/default.yaml").exists() else "built-in defaults")
+        source = args.config or default_config_path() or "built-in defaults"
         _check("config", True, source + (" (+ mock profile)" if args.mock else ""))
     except ConfigError as exc:
         _check("config", False, str(exc))
@@ -231,14 +251,29 @@ def cmd_doctor(args) -> int:
     except Exception as exc:  # noqa: BLE001
         all_ok &= _check("persona", False, str(exc))
 
+    from .hardware import detect
+
+    _check("this PC", True, detect().summary())
+    if cfg.offline:
+        from .offline import offline_problems
+
+        problems = offline_problems(cfg)
+        all_ok &= _check("offline", not problems, "; ".join(problems) or "no cloud AI services configured")
+
     ok, detail = asyncio.run(probe_llm(cfg))
     all_ok &= _check(f"llm ({cfg.llm.provider})", ok, detail)
 
-    tts_deps = {"edge": ["edge_tts", "miniaudio"], "kokoro": ["kokoro"]}.get(cfg.tts.provider, [])
+    tts_deps = {"edge": ["edge_tts", "miniaudio"], "kokoro": ["kokoro_onnx"]}.get(cfg.tts.provider, [])
     missing = [m for m in tts_deps if importlib.util.find_spec(m) is None]
-    detail = f"missing {', '.join(missing)}" if missing else cfg.tts.provider
+    detail = f"missing {', '.join(missing)} (pip install 'neuroclone[local]')" if missing else cfg.tts.provider
     if cfg.tts.provider == "azure" and not cfg.tts.azure_key:
         missing, detail = ["key"], "set tts.azure_key / AZURE_SPEECH_KEY"
+    if cfg.tts.provider == "kokoro" and not missing:
+        absent = [f for f in (cfg.tts.kokoro_model, cfg.tts.kokoro_voices) if not Path(f).exists()]
+        if absent:
+            missing, detail = absent, f"missing {', '.join(absent)}: run `neuroclone setup`"
+        else:
+            detail = f"kokoro ({Path(cfg.tts.kokoro_model).name}, {cfg.tts.device})"
     all_ok &= _check("tts", not missing, detail)
 
     if importlib.util.find_spec("sounddevice") is None:
@@ -292,7 +327,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     def common(p: argparse.ArgumentParser) -> None:
-        p.add_argument("-c", "--config", help="YAML config (default: config/default.yaml if present)")
+        p.add_argument("-c", "--config", help="YAML config (default: config/local.yaml, else config/default.yaml)")
         p.add_argument("--set", action="append", metavar="KEY=VALUE", help="override, e.g. --set llm.model=qwen3:8b")
         p.add_argument("--mock", action="store_true", help="offline mode: mock LLM, silent TTS, no devices")
         p.add_argument("-v", "--verbose", action="store_true")
@@ -337,6 +372,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-k", type=int, default=8)
     p.set_defaults(func=cmd_memory)
 
+    from .setup_cmd import add_parsers
+
+    add_parsers(sub, common)
+
     p = sub.add_parser("blocklist", help="download a community word list")
     p.add_argument("action", choices=["fetch"])
     p.add_argument("--url", default=None)
@@ -346,6 +385,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    for stream in (sys.stdout, sys.stderr):  # a Windows console must never crash on an emoji
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)

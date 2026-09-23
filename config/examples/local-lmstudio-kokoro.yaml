@@ -1,7 +1,9 @@
-# Fully local, low latency: LM Studio (or llama.cpp server) + Kokoro-FastAPI + VTube Studio + mic.
+# Fully local, low latency: LM Studio (or llama.cpp server) + Kokoro in-process + VTube Studio + mic.
+# (With Ollama, just run `neuroclone setup` instead: it writes a config like this for your PC.)
 #   LM Studio: load a model, start the server (default http://localhost:1234/v1)
 #   llama.cpp: llama-server -m model.gguf --port 1234 -c 8192 --cache-reuse 256
-#   Kokoro:    docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-gpu
+#              (MoE models on small GPUs: add --n-cpu-moe 20 to keep experts in system RAM)
+#   Kokoro:    pip install 'neuroclone[local]'; model files go in models/kokoro/ (neuroclone setup fetches them)
 persona: nexa
 
 llm:
@@ -17,13 +19,13 @@ memory:
   embed_model: text-embedding-nomic-embed-text-v1.5
 
 tts:
-  provider: openai
-  base_url: http://localhost:8880/v1
-  model: kokoro
+  provider: kokoro       # in-process on the CPU; the GPU stays free for the LLM
 
 stt:
   enabled: true
-  model: base.en
+  model: small.en
+  device: cpu
+  compute_type: int8
 
 avatar:
   enabled: true

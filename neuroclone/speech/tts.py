@@ -137,16 +137,18 @@ class OpenAITTS(_HTTPTTS):
     name = "openai"
 
     def __init__(self, base_url: str, model: str, voice: str, api_key: str = "", speed: float = 1.0,
-                 timeout_s: float = 20.0) -> None:
+                 timeout_s: float = 20.0, pitch_semitones: float = 0.0) -> None:
         super().__init__(timeout_s)
         self.base_url, self.model, self.voice, self.api_key, self.speed = (
             base_url.rstrip("/"), model, voice or "af_bella", api_key, speed)
+        self.pitch_semitones = pitch_semitones
 
     async def synthesize(self, text: str, style: Optional[VoiceStyle] = None) -> AudioClip:
         session = await self._session_get()
         speed = self.speed * (1 + (style.rate_pct / 100 if style else 0))
+        ratio = pitch_ratio(self.pitch_semitones, style) if self.pitch_semitones else 1.0
         body = {"model": self.model, "input": text, "voice": self.voice, "response_format": "wav",
-                "speed": round(max(0.5, min(2.0, speed)), 3)}
+                "speed": round(speed_and_pitch(speed, ratio), 3)}
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         try:
             async with session.post(f"{self.base_url}/audio/speech", json=body, headers=headers,
@@ -157,6 +159,8 @@ class OpenAITTS(_HTTPTTS):
         except aiohttp.ClientError as exc:
             raise TTSError(f"TTS server {self.base_url} unreachable: {exc}") from exc
         clip = AudioClip.from_wav(data) if data[:4] == b"RIFF" else AudioClip.from_pcm16(data, 24000)
+        if ratio != 1.0:
+            clip.samples = apply_ratio(clip.samples, ratio)
         clip.text = text
         return clip
 
@@ -195,19 +199,149 @@ class EdgeTTS(TTS):
         return AudioClip(np.asarray(decoded.samples, dtype=np.float32), decoded.sample_rate, text)
 
 
+# Kokoro voice-name prefix -> espeak language (af_bella = American English female, bf_ = British...).
+KOKORO_LANGS = {"a": "en-us", "b": "en-gb", "j": "ja", "z": "cmn", "e": "es", "f": "fr-fr", "h": "hi", "i": "it",
+                "p": "pt-br"}
+KOKORO_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/"
+
+
+def pitch_ratio(semitones: float, style: Optional[VoiceStyle] = None) -> float:
+    """Frequency ratio for a base shift in semitones plus the emotion's percentage."""
+    ratio = 2.0 ** (semitones / 12.0)
+    if style is not None and style.pitch_pct:
+        ratio *= 1.0 + style.pitch_pct / 100.0
+    return ratio
+
+
+def resample_to(samples: np.ndarray, n_out: int) -> np.ndarray:
+    """Band-limited (FFT) resampling to exactly ``n_out`` samples."""
+    n_in = len(samples)
+    if n_out == n_in or n_in == 0 or n_out <= 0:
+        return samples.astype(np.float32)
+    spectrum = np.fft.rfft(samples)
+    out = np.zeros(n_out // 2 + 1, dtype=spectrum.dtype)
+    keep = min(len(spectrum), len(out))
+    out[:keep] = spectrum[:keep]
+    return (np.fft.irfft(out, n_out) * (n_out / n_in)).astype(np.float32)
+
+
+def speed_and_pitch(speed: float, ratio: float) -> float:
+    """The 'tape' trick: ask the voice model to speak ``ratio`` times slower, then resample the
+    result ``ratio`` times shorter. Duration comes back to normal and pitch rises by ``ratio``, with
+    none of the warble of a time-stretching pitch shifter (the neural model did the stretching)."""
+    return max(0.5, min(2.0, speed / ratio))
+
+
+def apply_ratio(samples: np.ndarray, ratio: float) -> np.ndarray:
+    if abs(ratio - 1.0) < 1e-3:
+        return samples.astype(np.float32)
+    return resample_to(samples, max(1, int(round(len(samples) / ratio))))
+
+
+def parse_voice_mix(spec: str) -> list[tuple[str, float]]:
+    """``"af_bella"`` or ``"af_bella:0.7+af_sky:0.3"`` -> [(name, weight)], weights normalised."""
+    parts = []
+    for chunk in (spec or "").split("+"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        name, _, weight = chunk.partition(":")
+        try:
+            parts.append((name.strip(), float(weight) if weight else 1.0))
+        except ValueError as exc:
+            raise TTSError(f"bad voice weight in {spec!r}") from exc
+    total = sum(w for _, w in parts)
+    if not parts or total <= 0:
+        raise TTSError(f"no voice in {spec!r}")
+    return [(n, w / total) for n, w in parts]
+
+
+def onnx_providers(device: str) -> list[str]:
+    import onnxruntime as ort
+
+    available = ort.get_available_providers()
+    if (device or "cpu").lower() in ("gpu", "cuda", "auto"):
+        preferred = ["CUDAExecutionProvider", "DmlExecutionProvider", "ROCMExecutionProvider", "CoreMLExecutionProvider"]
+        chosen = [p for p in preferred if p in available]
+        if chosen:
+            return chosen + ["CPUExecutionProvider"]
+        log.info("no GPU build of onnxruntime installed; the voice runs on the CPU")
+    return ["CPUExecutionProvider"]
+
+
 class KokoroTTS(TTS):
-    """Local Kokoro-82M (``pip install 'neuroclone[kokoro]'``): fast, Apache-2.0, 24 kHz."""
+    """Kokoro-82M in-process via ONNX Runtime (``pip install 'neuroclone[kokoro]'``): offline, free
+    (Apache-2.0), 24 kHz, faster than real time on a desktop CPU so the GPU stays free for the LLM.
+    Voices can be blended (``af_bella:0.7+af_sky:0.3``) and pitched (``pitch_semitones``)."""
 
     name = "kokoro"
 
-    def __init__(self, voice: str, lang_code: str = "a", speed: float = 1.0) -> None:
+    def __init__(self, voice: str, *, model_path: str, voices_path: str, lang: str = "", speed: float = 1.0,
+                 pitch_semitones: float = 0.0, device: str = "cpu", threads: int = 0) -> None:
+        try:
+            import onnxruntime as ort
+            from kokoro_onnx import Kokoro
+        except ImportError as exc:
+            raise TTSError("the kokoro voice needs: pip install 'neuroclone[kokoro]'") from exc
+        from pathlib import Path
+
+        missing = [p for p in (model_path, voices_path) if not Path(p).exists()]
+        if missing:
+            raise TTSError(f"Kokoro files not found: {', '.join(missing)}. Run `neuroclone setup` or download "
+                           f"kokoro-v1.0.onnx and voices-v1.0.bin from {KOKORO_URL}")
+        options = ort.SessionOptions()
+        options.log_severity_level = 3  # the fp16 model is chatty about constant folding
+        if threads:
+            options.intra_op_num_threads = threads
+        session = ort.InferenceSession(model_path, sess_options=options, providers=onnx_providers(device))
+        self.kokoro = Kokoro.from_session(session, voices_path)
+        self.voice_spec = voice or "af_bella"
+        self.style = self._resolve(self.voice_spec)
+        first = parse_voice_mix(self.voice_spec)[0][0]
+        self.lang = KOKORO_LANGS.get(lang, lang) if lang else KOKORO_LANGS.get(first[:1], "en-us")
+        self.speed = speed
+        self.pitch_semitones = pitch_semitones
+        self._lock = asyncio.Lock()
+
+    def _resolve(self, spec: str):
+        mix = parse_voice_mix(spec)
+        known = set(self.kokoro.get_voices())
+        unknown = [n for n, _ in mix if n not in known]
+        if unknown:
+            raise TTSError(f"unknown Kokoro voice {', '.join(unknown)}; try one of: {', '.join(sorted(known)[:30])}")
+        if len(mix) == 1:
+            return mix[0][0]
+        return sum(w * self.kokoro.get_voice_style(n) for n, w in mix)
+
+    def _run(self, text: str, speed: float) -> np.ndarray:
+        samples, _ = self.kokoro.create(text, voice=self.style, speed=speed, lang=self.lang)
+        return np.asarray(samples, dtype=np.float32)
+
+    async def synthesize(self, text: str, style: Optional[VoiceStyle] = None) -> AudioClip:
+        speed = self.speed * (1 + (style.rate_pct / 100 if style else 0))
+        ratio = pitch_ratio(self.pitch_semitones, style)
+        async with self._lock:  # one inference at a time: parallel runs only fight over the same cores
+            samples = await asyncio.to_thread(self._run, text, speed_and_pitch(speed, ratio))
+        return AudioClip(apply_ratio(samples, ratio), 24000, text)
+
+    async def warmup(self) -> None:
+        await self.synthesize("Hi.")
+
+
+class KokoroTorchTTS(TTS):
+    """Kokoro through the original PyTorch package (``pip install kokoro``), if that's what you have."""
+
+    name = "kokoro"
+
+    def __init__(self, voice: str, lang_code: str = "a", speed: float = 1.0, pitch_semitones: float = 0.0) -> None:
         try:
             from kokoro import KPipeline
         except ImportError as exc:
-            raise TTSError("kokoro TTS needs: pip install 'neuroclone[kokoro]'") from exc
-        self.pipeline = KPipeline(lang_code=lang_code)
+            raise TTSError("the kokoro voice needs: pip install 'neuroclone[kokoro]'") from exc
+        self.pipeline = KPipeline(lang_code=lang_code or (voice or "a")[:1])
         self.voice = voice or "af_bella"
         self.speed = speed
+        self.pitch_semitones = pitch_semitones
         self._lock = asyncio.Lock()
 
     def _run(self, text: str, speed: float) -> np.ndarray:
@@ -218,9 +352,10 @@ class KokoroTTS(TTS):
 
     async def synthesize(self, text: str, style: Optional[VoiceStyle] = None) -> AudioClip:
         speed = self.speed * (1 + (style.rate_pct / 100 if style else 0))
+        ratio = pitch_ratio(self.pitch_semitones, style)
         async with self._lock:  # the pipeline is not re-entrant
-            samples = await asyncio.to_thread(self._run, text, speed)
-        return AudioClip(samples, 24000, text)
+            samples = await asyncio.to_thread(self._run, text, speed_and_pitch(speed, ratio))
+        return AudioClip(apply_ratio(samples, ratio), 24000, text)
 
 
 def create_tts(cfg: TTSConfig, persona: Persona) -> TTS:
@@ -230,14 +365,20 @@ def create_tts(cfg: TTSConfig, persona: Persona) -> TTS:
     pitch = cfg.pitch or voice_cfg.get("pitch", "")
     rate = cfg.rate or voice_cfg.get("rate", "")
     speed = float(voice_cfg.get("speed", 1.0))
+    semitones = cfg.pitch_semitones + float(voice_cfg.get("pitch_semitones", 0.0))
     if provider == "silent":
         return SilentTTS(cfg.chars_per_second)
     if provider == "azure":
         return AzureTTS(cfg.azure_key, cfg.azure_region, voice, pitch or "+0%", rate or "+0%", cfg.timeout_s)
     if provider == "openai":
-        return OpenAITTS(cfg.base_url, cfg.model, voice, cfg.api_key, speed, cfg.timeout_s)
+        return OpenAITTS(cfg.base_url, cfg.model, voice, cfg.api_key, speed, cfg.timeout_s, pitch_semitones=semitones)
     if provider == "edge":
         return EdgeTTS(voice, pitch or "+0Hz", rate or "+0%")
     if provider == "kokoro":
-        return KokoroTTS(voice, cfg.kokoro_lang, speed)
-    raise TTSError(f"unknown tts.provider {cfg.provider!r} (silent, azure, openai, edge, kokoro)")
+        import importlib.util
+
+        if importlib.util.find_spec("kokoro_onnx") is None and importlib.util.find_spec("kokoro") is not None:
+            return KokoroTorchTTS(voice, cfg.kokoro_lang, speed, semitones)
+        return KokoroTTS(voice, model_path=cfg.kokoro_model, voices_path=cfg.kokoro_voices, lang=cfg.kokoro_lang,
+                         speed=speed, pitch_semitones=semitones, device=cfg.device, threads=cfg.threads)
+    raise TTSError(f"unknown tts.provider {cfg.provider!r} (silent, kokoro, openai, azure, edge)")

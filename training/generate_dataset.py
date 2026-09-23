@@ -243,7 +243,7 @@ async def run(args: argparse.Namespace) -> dict:
     n_dpo = write_jsonl(out / "dpo.jsonl", dpo)
     summary = {**gen.stats, "sft": n_sft, "dpo": n_dpo, "persona": persona.name,
                "prompt_style": args.prompt_style, "scenarios": [s.id for s in scenarios]}
-    (out / "generate_summary.json").write_text(json.dumps(summary, indent=2))
+    (out / "generate_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return summary
 
 
