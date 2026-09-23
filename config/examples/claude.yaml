@@ -1,0 +1,20 @@
+# Claude as the brain (pip install 'neuroclone[anthropic]', export ANTHROPIC_API_KEY=...).
+# Live replies use low effort so speech starts fast; server-side refusal fallbacks are on by default.
+persona: nexa
+twin: vexa
+
+llm:
+  provider: anthropic
+  model: claude-opus-5
+  effort: low            # live replies: low | medium | high
+  json_effort: medium    # game decisions and background memory work
+  fallbacks: true        # server-side refusal fallbacks (set false to disable)
+
+memory:
+  embedder: hash
+
+tts:
+  provider: edge         # free online voices: pip install 'neuroclone[edge-tts]'
+
+games:
+  enabled: true

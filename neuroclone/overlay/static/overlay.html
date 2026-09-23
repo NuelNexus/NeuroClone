@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NeuroClone Captions</title>
+<style>
+  /* OBS browser source: 1920x1080, transparent background. */
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  #wrap { position: absolute; left: 0; right: 0; bottom: 6%; display: flex; justify-content: center; padding: 0 16px; }
+  #cap { max-width: 78%; padding: 14px 22px; border-radius: 16px; background: rgba(12, 12, 20, 0.72); color: #fff;
+         font: 600 34px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; text-shadow: 0 2px 4px rgba(0,0,0,.6);
+         opacity: 0; transform: translateY(8px); transition: opacity .25s, transform .25s; }
+  #cap.show { opacity: 1; transform: none; }
+  #who { display: block; font-size: 20px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 2px; }
+</style>
+</head>
+<body>
+<div id="wrap"><div id="cap"><span id="who"></span><span id="text"></span></div></div>
+<script>
+const colors = { happy: '#ffd166', excited: '#ff9f1c', smug: '#b388ff', love: '#ff7aa2', sad: '#7fb3ff', angry: '#ff5c5c',
+                 scared: '#9ad0ff', confused: '#c3c3ff', thinking: '#8ee6c9', surprised: '#ffe066', tired: '#a0a0b8', neutral: '#8ee6c9' };
+const token = new URLSearchParams(location.search).get('token');
+const q = token ? `?token=${encodeURIComponent(token)}` : '';
+let hideTimer;
+function show(speaker, text, emotion) {
+  const cap = document.getElementById('cap');
+  document.getElementById('who').textContent = speaker;
+  document.getElementById('who').style.color = colors[emotion] || colors.neutral;
+  document.getElementById('text').textContent = text;
+  cap.classList.add('show');
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => cap.classList.remove('show'), 2500 + text.length * 45);
+}
+function connect() {
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws${q}`);
+  let replaying = true;
+  ws.onmessage = (ev) => {
+    const { topic, data } = JSON.parse(ev.data);
+    if (topic === 'ready') { replaying = false; return; }
+    if (topic === 'caption' && !replaying) show(data.speaker, data.text, data.emotion);
+  };
+  ws.onclose = () => setTimeout(connect, 1500);
+}
+connect();
+</script>
+</body>
+</html>

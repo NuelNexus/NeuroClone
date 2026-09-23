@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeuroClone Control Room</title>
+<style>
+  :root {
+    --bg: #0f1117; --panel: #171a23; --panel-2: #1e2230; --line: #2a2f40; --text: #e7e9f0;
+    --muted: #8b91a7; --accent: #8b7bff; --accent-2: #4fd1c5; --ok: #3ecf8e; --warn: #f5b454; --bad: #ff6b81;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f5f6fa; --panel: #ffffff; --panel-2: #f0f1f6; --line: #dfe2ec; --text: #1b1e27; --muted: #626a82; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; letter-spacing: .3px; }
+  .pill { padding: 3px 10px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .pill.live { color: #fff; background: var(--ok); border-color: transparent; }
+  .pill.paused { color: #1b1e27; background: var(--warn); border-color: transparent; }
+  .pill.speaking { color: #fff; background: var(--accent); border-color: transparent; }
+  .pill.bad { color: #fff; background: var(--bad); border-color: transparent; }
+  main { display: grid; grid-template-columns: 1.3fr 1fr 0.9fr; gap: 12px; padding: 12px 16px; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 720px) { main { grid-template-columns: 1fr; padding: 12px; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; min-height: 0; }
+  section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .scroll { overflow-y: auto; max-height: 62vh; padding: 8px 12px; }
+  .col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .turn { padding: 8px 0; border-bottom: 1px dashed var(--line); }
+  .turn .meta { color: var(--muted); font-size: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .turn .who { font-weight: 600; color: var(--accent-2); }
+  .turn .reply { margin-top: 2px; }
+  .turn .stim { color: var(--muted); font-style: italic; }
+  .tag { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); }
+  .tag.bad { color: var(--bad); border-color: var(--bad); }
+  .tag.ok { color: var(--ok); border-color: var(--ok); }
+  .chat { padding: 4px 0; border-bottom: 1px solid var(--line); word-break: break-word; }
+  .chat .u { font-weight: 600; margin-right: 6px; }
+  .chat.blocked { opacity: .55; }
+  .cand { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 4px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
+  .cand .score { font-variant-numeric: tabular-nums; color: var(--accent); }
+  .why { color: var(--muted); font-size: 11px; grid-column: 1 / -1; }
+  .bar { height: 6px; background: var(--panel-2); border-radius: 4px; overflow: hidden; margin: 3px 0 8px; }
+  .bar > span { display: block; height: 100%; background: var(--accent); }
+  .ctl { padding: 10px 12px; display: grid; gap: 8px; }
+  .row { display: flex; gap: 6px; }
+  input, button { font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); padding: 7px 10px; min-width: 0; }
+  input { flex: 1; }
+  button { cursor: pointer; white-space: nowrap; }
+  button.primary { background: var(--accent); color: #fff; border-color: transparent; }
+  button.danger { background: var(--bad); color: #fff; border-color: transparent; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; padding: 8px 12px; font-size: 13px; }
+  .kv b { color: var(--muted); font-weight: 500; }
+  .empty { color: var(--muted); padding: 8px 0; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">NeuroClone</h1>
+  <span id="live" class="pill">connecting</span>
+  <span id="speaking" class="pill">idle</span>
+  <span id="uptime" class="pill">up 0m</span>
+  <span id="latency" class="pill">first audio –</span>
+  <span id="counts" class="pill">0 replies</span>
+</header>
+<main>
+  <div class="col">
+    <section><h2>Live transcript</h2><div id="turns" class="scroll"><div class="empty">Waiting for the first line…</div></div></section>
+  </div>
+  <div class="col">
+    <section><h2>Chat</h2><div id="chat" class="scroll" style="max-height:34vh"><div class="empty">No chat yet.</div></div></section>
+    <section><h2>Why this message?</h2><div id="cands" class="scroll" style="max-height:24vh"><div class="empty">The selector's scores appear here.</div></div></section>
+  </div>
+  <div class="col">
+    <section><h2>Controls</h2>
+      <div class="ctl">
+        <div class="row">
+          <button class="danger" onclick="cmd('skip')">Skip line</button>
+          <button onclick="cmd('pause')">Pause</button>
+          <button onclick="cmd('resume')">Resume</button>
+        </div>
+        <div class="row"><input id="creator" placeholder="Talk as the creator…"><button class="primary" onclick="send('creator','creator')">Say</button></div>
+        <div class="row"><input id="viewer" placeholder="Chat as a viewer…"><button onclick="send('chat','viewer')">Chat</button></div>
+        <div class="row"><input id="topic" placeholder="Director note (steer the topic)…"><button onclick="send('topic','topic')">Steer</button></div>
+        <div class="row"><input id="say" placeholder="Exact line to speak (still filtered)…"><button onclick="send('say','say')">Speak</button></div>
+        <div class="row"><input id="block" placeholder="Block a word or phrase…"><button onclick="send('block','block')">Block</button></div>
+        <div class="row"><input id="mute" placeholder="Mute a user…"><button onclick="send('mute','mute')">Mute</button></div>
+      </div>
+    </section>
+    <section><h2>Characters</h2><div id="chars" class="kv" style="display:block"></div></section>
+    <section><h2>Games (Neuro API)</h2><div id="games" class="scroll" style="max-height:18vh"><div class="empty">No games connected. Point a Neuro SDK game at ws://localhost:8000.</div></div></section>
+    <section><h2>Memory</h2>
+      <div class="ctl"><div class="row"><input id="mq" placeholder="Search memories…"><button onclick="searchMemory()">Search</button></div></div>
+      <div id="mem" class="scroll" style="max-height:20vh"></div>
+    </section>
+  </div>
+</main>
+<script>
+const token = new URLSearchParams(location.search).get('token');
+const q = token ? `?token=${encodeURIComponent(token)}` : '';
+let ws;
+const $ = (id) => document.getElementById(id);
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+function clearEmpty(box) { const e = box.querySelector('.empty'); if (e) e.remove(); }
+function prepend(box, node, limit) { clearEmpty(box); box.prepend(node); while (box.children.length > limit) box.lastChild.remove(); }
+
+function cmd(command, args) {
+  const body = JSON.stringify({ command, args: args || {} });
+  if (ws && ws.readyState === 1) ws.send(body);
+  else fetch(`/api/command${q}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+}
+function send(command, inputId) {
+  const input = $(inputId); const text = input.value.trim(); if (!text) return;
+  cmd(command, command === 'chat' ? { text, user: 'dashboard' } : { text }); input.value = '';
+}
+for (const id of ['creator','viewer','topic','say','block','mute']) {
+  $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') send({creator:'creator',viewer:'chat',topic:'topic',say:'say',block:'block',mute:'mute'}[id], id); });
+}
+$('mq').addEventListener('keydown', (e) => { if (e.key === 'Enter') searchMemory(); });
+
+async function searchMemory() {
+  const text = $('mq').value.trim(); const box = $('mem'); box.textContent = '';
+  const res = await fetch(`/api/memory${q}${q ? '&' : '?'}q=${encodeURIComponent(text)}`); const data = await res.json();
+  if (!data.enabled) { box.append(el('div', 'empty', 'Memory is disabled.')); return; }
+  if (!data.results.length) box.append(el('div', 'empty', `No matches. ${data.stats.memories} memories, ${data.stats.users} viewers known.`));
+  for (const r of data.results) {
+    const d = el('div', 'chat'); d.append(el('span', 'tag', r.kind), document.createTextNode(' ' + r.text));
+    d.append(el('div', 'why', `score ${r.score} · similarity ${r.similarity} · importance ${r.importance}`)); box.append(d);
+  }
+}
+
+function onTurn(d) {
+  const t = el('div', 'turn');
+  const meta = el('div', 'meta');
+  meta.append(el('span', 'who', d.character), el('span', '', `← ${d.kind}${d.speaker ? ' · ' + d.speaker : ''}`));
+  if (d.latency && d.latency.first_audio_s != null) meta.append(el('span', 'tag', `${d.latency.first_audio_s}s to voice`));
+  if (d.filtered) meta.append(el('span', 'tag bad', 'filtered'));
+  if (d.interrupted) meta.append(el('span', 'tag bad', 'interrupted'));
+  if (d.mood) meta.append(el('span', 'tag', d.mood));
+  t.append(meta);
+  if (d.stimulus) t.append(el('div', 'stim', d.stimulus));
+  t.append(el('div', 'reply', d.reply || '(silence)'));
+  prepend($('turns'), t, 150);
+}
+function onChat(d) {
+  const c = el('div', 'chat' + (d.allowed ? '' : ' blocked'));
+  c.append(el('span', 'u', d.user), document.createTextNode(d.text));
+  if (!d.allowed) c.append(document.createTextNode(' '), el('span', 'tag bad', d.reason));
+  prepend($('chat'), c, 200);
+}
+function onSelected(d) {
+  const box = $('cands'); box.textContent = '';
+  const head = el('div', 'chat'); head.append(el('span', 'tag ok', 'answering'), document.createTextNode(` ${d.user}: ${d.text}`)); box.append(head);
+  for (const c of d.candidates || []) {
+    const row = el('div', 'cand'); row.append(el('span', '', `${c.user}: ${c.text}`), el('span', 'score', c.score.toFixed(2)));
+    row.append(el('span', 'why', Object.entries(c.reasons).filter(([k]) => k !== 'base').map(([k, v]) => `${k} ${v > 0 ? '+' : ''}${v}`).join(' · ')));
+    box.append(row);
+  }
+}
+function onState(s) {
+  $('live').textContent = s.paused ? 'PAUSED' : 'LIVE'; $('live').className = 'pill ' + (s.paused ? 'paused' : 'live');
+  $('speaking').textContent = s.speaking ? `${s.speaking} speaking` : 'listening'; $('speaking').className = 'pill' + (s.speaking ? ' speaking' : '');
+  const m = Math.floor(s.uptime_s / 60); $('uptime').textContent = `up ${m >= 60 ? Math.floor(m / 60) + 'h ' : ''}${m % 60}m`;
+  $('latency').textContent = `first audio ${s.stats.avg_first_audio_s != null ? s.stats.avg_first_audio_s + 's' : '–'}`;
+  $('counts').textContent = `${s.stats.responses} replies · ${s.stats.filtered} filtered · ${s.stats.chat_blocked}/${s.stats.chat_seen} chat blocked`;
+  $('title').textContent = s.characters.map((c) => c.name).join(' & ') + ' · control room';
+  const chars = $('chars'); chars.textContent = '';
+  for (const c of s.characters) {
+    const box = el('div', ''); box.style.marginBottom = '10px';
+    box.append(el('div', '', `${c.name} is ${c.mood}${c.emotion && c.emotion !== 'neutral' ? ' (' + c.emotion + ')' : ''}`));
+    const mk = (label, v) => { const w = el('div', 'why', label); const b = el('div', 'bar'); const s = el('span'); s.style.width = `${Math.round(v * 100)}%`; b.append(s); box.append(w, b); };
+    mk('happiness', (c.valence + 1) / 2); mk('energy', c.arousal);
+    if (c.avatar) box.append(el('div', 'why', `VTube Studio: ${c.avatar.authenticated ? 'connected' : 'not connected'}`));
+    chars.append(box);
+  }
+  const games = $('games'); games.textContent = '';
+  if (!s.games.length) games.append(el('div', 'empty', 'No games connected. Point a Neuro SDK game at ws://localhost:8000.'));
+  for (const g of s.games) {
+    const d = el('div', 'chat'); d.append(el('span', 'u', g.game), el('span', 'tag ' + (g.connected ? 'ok' : 'bad'), g.connected ? 'connected' : 'offline'));
+    if (g.pending_force) d.append(document.createTextNode(' '), el('span', 'tag', 'deciding…'));
+    d.append(el('div', 'why', g.actions.length ? g.actions.join(', ') : 'no actions registered')); games.append(d);
+  }
+}
+function connect() {
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws${q}`);
+  ws.onmessage = (ev) => {
+    const { topic, data } = JSON.parse(ev.data);
+    if (topic === 'turn') onTurn(data);
+    else if (topic === 'chat') onChat(data);
+    else if (topic === 'selected') onSelected(data);
+    else if (topic === 'state') onState(data);
+  };
+  ws.onclose = () => { $('live').textContent = 'reconnecting'; $('live').className = 'pill bad'; setTimeout(connect, 1500); };
+}
+connect();
+</script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neuroclone"
+version = "0.1.0"
+description = "An open-source AI VTuber runtime inspired by Neuro-sama: streaming LLM brain, memory, safety, TTS/STT, VTube Studio, and a Neuro SDK-compatible game server."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "NuelNexus" }]
+keywords = ["ai-vtuber", "neuro-sama", "llm", "livestream", "vtube-studio", "tts"]
+dependencies = [
+    "aiohttp>=3.9",
+    "numpy>=1.24",
+    "pyyaml>=6.0",
+    "jsonschema>=4.18",
+]
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=1.0"]
+audio = ["sounddevice>=0.4.6"]
+stt = ["faster-whisper>=1.0", "sounddevice>=0.4.6"]
+edge-tts = ["edge-tts>=6.1", "miniaudio>=1.59"]
+kokoro = ["kokoro>=0.9"]
+vision = ["mss>=9.0", "pillow>=10.0"]
+train = [
+    "torch>=2.3",
+    "transformers>=4.51",
+    "datasets>=2.19",
+    "peft>=0.11",
+    "trl>=0.19",
+    "accelerate>=0.30",
+]
+dev = ["pytest>=8.0"]
+all = [
+    "anthropic>=1.0",
+    "sounddevice>=0.4.6",
+    "faster-whisper>=1.0",
+    "edge-tts>=6.1",
+    "miniaudio>=1.59",
+    "mss>=9.0",
+    "pillow>=10.0",
+]
+
+[project.scripts]
+neuroclone = "neuroclone.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["neuroclone*"]
+
+[tool.setuptools.package-data]
+neuroclone = ["overlay/static/*.html", "data/*.txt", "data/personas/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

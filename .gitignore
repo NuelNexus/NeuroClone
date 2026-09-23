@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Runtime data (memories, transcripts, tokens, audio dumps)
+data/
+!neuroclone/data/
+*.sqlite3
+*.wav
+
+# Training outputs
+training/output/
+training/data/
+*.safetensors
+*.gguf
+
+# Local config and secrets
+config/local*.yaml
+.env

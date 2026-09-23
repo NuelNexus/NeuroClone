@@ -1,0 +1,16 @@
+# Runs anywhere with zero setup (same as `--mock`): mock LLM, silent TTS, headless audio.
+persona: nexa
+twin: vexa
+
+llm:
+  provider: mock
+  mock_delay_s: 0.01
+
+tts:
+  provider: silent
+
+audio:
+  player: null
+
+memory:
+  path: data/demo-memory.sqlite3

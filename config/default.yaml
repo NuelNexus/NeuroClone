@@ -1,0 +1,76 @@
+# NeuroClone default config: a fully local setup.
+#   LLM:  Ollama (https://ollama.com). `ollama pull llama3.1:8b` (or any chat model)
+#   TTS:  silent until you pick a voice (see tts below)
+# Every key is optional; anything omitted uses the default in neuroclone/config.py.
+# Strings can use ${ENV_VAR} or ${ENV_VAR:-default}.
+
+persona: nexa            # built-in: nexa, vexa. Or a path to your own YAML card.
+twin: ""                 # set to "vexa" for twin mode (two characters on one stage)
+creator: ""              # your name, if you want the characters to call you something other than "Nuel"
+
+llm:
+  provider: openai       # openai (any OpenAI-compatible server) | anthropic | mock
+  base_url: ${OPENAI_BASE_URL:-http://localhost:11434/v1}
+  model: ${NEUROCLONE_MODEL:-llama3.1:8b}
+  api_key: ${OPENAI_API_KEY:-}
+  temperature: 0.9
+  max_tokens: 350
+  # For Qwen3-style thinking models on llama.cpp/vLLM you can turn thinking off per request:
+  # extra_body: {chat_template_kwargs: {enable_thinking: false}}
+
+# Optional: a separate (smaller/cheaper) model for summaries, reflection and moderation.
+# utility_llm: {provider: openai, base_url: http://localhost:11434/v1, model: llama3.2:3b}
+
+memory:
+  enabled: true
+  path: data/memory.sqlite3
+  embedder: hash         # hash (offline, no model) | openai (any /embeddings endpoint)
+  # embedder: openai
+  # embed_model: nomic-embed-text   # `ollama pull nomic-embed-text`
+
+chat:
+  twitch:
+    channel: ${TWITCH_CHANNEL:-}        # reading works anonymously
+    nick: ${TWITCH_BOT_NICK:-}          # optional, only needed to post in chat
+    oauth_token: ${TWITCH_OAUTH:-}
+  youtube:
+    video_id: ${YOUTUBE_VIDEO_ID:-}
+    api_key: ${YOUTUBE_API_KEY:-}
+
+safety:
+  blocklists: []         # e.g. [data/blocklist_community.txt] after `neuroclone blocklist fetch`
+  extra_terms: []
+  llm_moderation: false  # second opinion from utility_llm, runs in parallel with TTS
+
+tts:
+  provider: silent       # silent | azure | openai | edge | kokoro
+  # Kokoro-FastAPI (local, fast): docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu
+  # provider: openai
+  # base_url: http://localhost:8880/v1
+  # model: kokoro
+  # Azure (the kind of voice Neuro-sama uses): provider: azure, azure_key: ${AZURE_SPEECH_KEY}, azure_region: eastus
+  azure_key: ${AZURE_SPEECH_KEY:-}
+
+audio:
+  player: auto           # auto | sounddevice | null | wav
+
+stt:
+  enabled: false         # pip install 'neuroclone[stt]' then set true to talk to her by voice
+  model: base.en
+
+avatar:
+  enabled: false         # VTube Studio: Settings > Start API (port 8001), then set true
+  url: ws://localhost:8001
+  hotkeys: {}            # emotion -> VTS hotkey name, e.g. {happy: "Smile", angry: "Angry", sad: "Sad"}
+
+games:
+  enabled: true          # Neuro SDK-compatible server for game integrations
+  port: 8000
+
+overlay:
+  enabled: true          # dashboard: http://127.0.0.1:8080   OBS captions: http://127.0.0.1:8080/overlay
+  port: 8080
+
+conductor:
+  idle_after_s: 14       # start a topic after this much silence (0 disables)
+  max_sentences: 4

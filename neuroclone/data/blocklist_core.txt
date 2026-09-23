@@ -1,0 +1,39 @@
+# NeuroClone core blocklist (applied to chat input AND model output).
+#
+# Entries are matched against normalised text: lowercase, accents/leetspeak undone,
+# punctuation replaced by spaces (so "didn't" becomes "didn t").
+#   plain words/phrases  -> whole-word match (optional plural suffix)
+#   re:<regex>           -> regular expression
+#   sha256:<hex>         -> hashed single token (see blocklist_hashes.txt)
+#
+# This list targets severe harms rather than profanity. For a broader list run:
+#   neuroclone blocklist fetch
+# and add the downloaded file under safety.blocklists in your config.
+
+# --- Self-harm encouragement
+re:\b(kys|kill (your ?self|yourselves|urself)|go (die|hang your ?self)|end your (own )?life|drink bleach)\b
+re:\bhow (to|do i|do you|can i|should i) (kill|hurt|cut|harm|starve) (my ?self|your ?self|me)\b
+re:\b(suicide|self harm) (method|methods|instructions|tips|guide)\b
+
+# --- Atrocity denial and extremist praise
+re:\bholocaust (didn t|did not|never) happen(ed)?\b
+re:\bholocaust (was|is) (a |an )?(hoax|fake|lie|myth|exaggerat\w*)\b
+re:\b(heil hitler|sieg heil|race war now|white power|14 ?88|gas the \w+)\b
+re:\bhitler (was|did) (right|nothing wrong|a good)\b
+re:\b(genocide|ethnic cleansing) (is|was) (good|based|justified|fine)\b
+
+# --- Sexual content involving minors
+re:\b(child|children|kid|kids|minor|minors|underage|preteen|toddler|baby)s? (porn|nudes?|sex|sexual|naked|lewd)\b
+re:\b(lolicon|shotacon|cp link|cp links|jailbait)\b
+
+# --- Dangerous instructions
+re:\b(how to|how do i|how do you|steps to|recipe for) (make|build|cook|synthesi[sz]e) (a |an |some )?(bomb|pipe bomb|explosives?|napalm|meth|nerve gas|ricin|sarin|thermite)\b
+
+# --- Threats and doxxing
+re:\bi (will|am going to|m going to|m gonna|am gonna) (kill|shoot|stab|murder) (you|u|him|her|them)\b
+re:\b(dox|doxx|doxxing|doxing|swat|swatting) (him|her|them|you|the streamer|this streamer)\b
+re:\b(real|home|house) address (is|of)\b
+re:\bsocial security (number|no)\b
+
+# --- Classic "make the AI say it" bait
+re:\b(say|type|spell|write) (the )?(n|f|r|k) ?word\b
